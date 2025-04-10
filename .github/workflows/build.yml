@@ -16,20 +16,24 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
         python-version: ['3.9']
+      fail-fast: false  # Continue with other OS builds even if one fails
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3  # Updated to v3
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4  # Updated to v4
       with:
         python-version: ${{ matrix.python-version }}
+        cache: 'pip'  # Enable pip caching
 
     - name: Install macOS dependencies
       if: matrix.os == 'macos-latest'
       run: |
-        brew install qt5
-        brew install pyqt5
+        brew update
+        brew install qt@5
+        brew link qt@5
+        brew install pyqt@5
         brew install openvpn
         echo 'export PATH="/usr/local/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
         source ~/.bash_profile
@@ -46,7 +50,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install wheel
         pip install pywin32
-        choco install openvpn
+        choco install openvpn -y
 
     - name: Install Python dependencies
       run: |
@@ -70,7 +74,8 @@ jobs:
         pyinstaller --name="VPN App" --windowed --onefile --hidden-import=PyQt5.sip --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets Main.py
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3  # Updated to v3
       with:
         name: VPN-App-${{ matrix.os }}
         path: dist/*
+        if-no-files-found: error  # Fail if no files to upload
