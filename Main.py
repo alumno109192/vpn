@@ -5,7 +5,7 @@ import pexpect
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton,
     QListWidget, QListWidgetItem, QLabel, QHBoxLayout, QFileDialog, QDialog, QLineEdit,
-    QTabWidget, QSystemTrayIcon, QMenu, QStyle  # Add QStyle
+    QTabWidget, QSystemTrayIcon, QMenu, QStyle, QMessageBox  # Add QStyle, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon, QPixmap, QCursor  # Add QCursor
@@ -83,6 +83,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Interfaz Gráfica con Botones en la Lista")
         self.setGeometry(100, 100, 500, 400)
 
+        # Check and install OpenVPN if needed
+        self.check_and_install_openvpn()
+
         # Initialize tray menu and icon
         self.tray_menu = QMenu()
         
@@ -152,6 +155,86 @@ class MainWindow(QMainWindow):
         # Load connections after menu is initialized
         self.load_connections()
         
+    def check_and_install_openvpn(self):
+        """Check if OpenVPN is installed and install it if needed"""
+        progress_dialog = QMessageBox(self)
+        progress_dialog.setIcon(QMessageBox.Information)
+        progress_dialog.setWindowTitle("Instalación de Requisitos")
+        progress_dialog.setText("Comprobando requisitos...")
+        progress_dialog.setStandardButtons(QMessageBox.NoButton)
+        progress_dialog.show()
+        QApplication.processEvents()
+
+        try:
+            # Update PATH with Homebrew locations
+            homebrew_paths = [
+                '/opt/homebrew/bin',      # M1/M2 Macs
+                '/usr/local/bin',         # Intel Macs
+                '/opt/homebrew/sbin',     # Additional M1/M2 paths
+                '/usr/local/sbin'         # Additional Intel paths
+            ]
+            
+            # Add Homebrew paths to PATH
+            os.environ['PATH'] = ':'.join(homebrew_paths + [os.environ.get('PATH', '')])
+            
+            # Check if OpenVPN is already installed
+            try:
+                openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
+                print(f"DEBUG: OpenVPN found at {openvpn_path}")
+                progress_dialog.hide()
+                return True
+            except subprocess.CalledProcessError:
+                print("DEBUG: OpenVPN not found, installing...")
+                progress_dialog.setText("Instalando OpenVPN...")
+                QApplication.processEvents()
+
+                try:
+                    # Update Homebrew first
+                    subprocess.run(['brew', 'update'], check=True)
+                    
+                    # Install OpenVPN
+                    subprocess.run(['brew', 'install', 'openvpn'], check=True)
+                    
+                    # Verify installation
+                    openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
+                    if openvpn_path:
+                        print(f"DEBUG: OpenVPN installed successfully at {openvpn_path}")
+                        progress_dialog.hide()
+                        return True
+                    else:
+                        raise Exception("OpenVPN installation verified but binary not found")
+
+                except Exception as e:
+                    print(f"ERROR: Failed to install OpenVPN: {e}")
+                    progress_dialog.hide()
+                    self.show_error_dialog(
+                        "Error",
+                        f"No se pudo instalar OpenVPN. Error: {str(e)}\n\n"
+                        "Por favor, instálelo manualmente usando:\nbrew install openvpn"
+                    )
+                    return False
+
+        except Exception as e:
+            print(f"ERROR: Unexpected error: {e}")
+            progress_dialog.hide()
+            self.show_error_dialog(
+                "Error",
+                f"Error inesperado: {str(e)}"
+            )
+            return False
+        finally:
+            if progress_dialog:
+                progress_dialog.hide()
+
+    def show_error_dialog(self, title, message):
+        """Show error dialog with custom title and message"""
+        error_dialog = QMessageBox(self)
+        error_dialog.setIcon(QMessageBox.Critical)
+        error_dialog.setWindowTitle(title)
+        error_dialog.setText(message)
+        error_dialog.setStandardButtons(QMessageBox.Ok)
+        error_dialog.exec_()
+
     def add_item_to_list(self, option_name, config_path, username, password, connection_type='openvpn', extra_data=None):
         # Crear un widget personalizado para la fila
         row_widget = QWidget()
@@ -269,6 +352,22 @@ class MainWindow(QMainWindow):
                 self.update_connections_menu()
 
                 if connection_type == 'openvpn':
+                    # Get full path to OpenVPN
+                    try:
+                        openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
+                        print(f"DEBUG: Using OpenVPN at {openvpn_path}")
+                    except subprocess.CalledProcessError:
+                        print("DEBUG: OpenVPN not found")
+                        if not self.check_and_install_openvpn():
+                            button.observer.set_state(ConnectionState.DISCONNECTED)
+                            return
+                        try:
+                            openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
+                        except subprocess.CalledProcessError:
+                            print("DEBUG: OpenVPN still not found after installation")
+                            button.observer.set_state(ConnectionState.DISCONNECTED)
+                            return
+
                     # Create temporary auth file
                     import tempfile
                     import os
@@ -279,63 +378,107 @@ class MainWindow(QMainWindow):
                         print(f"DEBUG: Created auth file at: {auth_file_path}")
 
                     try:
-                        # Usar la contraseña sudo obtenida del archivo
-                        command = f"echo {sudo_password} | sudo -S openvpn --config {config_path} --auth-user-pass {auth_file_path}"
-                        print(f"DEBUG: Executing OpenVPN command (password hidden)")
+                        command = [
+                            "sudo", "-S",
+                            openvpn_path,
+                            "--config", config_path,
+                            "--auth-user-pass", auth_file_path,
+                            "--verb", "4"
+                        ]
                         
-                        # Usar shell=True para que funcione el pipe con echo
+                        print(f"DEBUG: Executing command: {' '.join(command)}")
+                        # Añadir justo antes de ejecutar el comando OpenVPN
+                        try:
+                            with open(config_path, 'r') as f:
+                                print(f"DEBUG: Config file is readable")
+                                config_content = f.read()
+                                print("DEBUG: Config file content:")
+                                print(config_content)
+                        except Exception as e:
+                            print(f"DEBUG: Error reading config file: {e}")
+                            button.observer.set_state(ConnectionState.DISCONNECTED)
+                            return
+
+                        # Obtener la ruta completa de OpenVPN
+                        openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
+                        
+                        command = [
+                            "sudo", "-S",
+                            openvpn_path,  # Usar la ruta completa
+                            "--config", config_path,
+                            "--auth-user-pass", auth_file_path,
+                            "--verb", "4"  # Aumentar el nivel de verbosidad
+                        ]
+                        
+                        print(f"DEBUG: Executing command: {' '.join(command)}")
+                        
                         process = subprocess.Popen(
                             command,
-                            shell=True,
+                            stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             universal_newlines=True,
                             bufsize=1
                         )
-                        print("DEBUG: Process started")
+                        
+                        # Enviar la contraseña sudo
+                        process.stdin.write(f"{sudo_password}\n")
+                        process.stdin.flush()
+                        
+                        print("DEBUG: Process started with PID:", process.pid)
 
-                        # Monitor process output
+                        # Monitor process output with timeout
+                        import select
+                        import time
+                        
+                        timeout = 30  # 30 segundos de timeout
+                        start_time = time.time()
+                        
                         while True:
-                            line = process.stdout.readline()
-                            if not line and process.poll() is not None:
-                                print("DEBUG: Process ended")
+                            # Check if process has ended
+                            if process.poll() is not None:
+                                print(f"DEBUG: Process ended with return code: {process.poll()}")
+                                # Leer cualquier error final
+                                stderr_output = process.stderr.read()
+                                if stderr_output:
+                                    print(f"ERROR: {stderr_output}")
                                 break
-                                
-                            if line:
-                                print(f"OpenVPN output: {line.strip()}")
-                                
-                            # Check stderr for errors
-                            error = process.stderr.readline()
-                            if error:
-                                print(f"OpenVPN error: {error.strip()}")
-
-                            # Detect connection states
-                            if line:
-                                if "Attempting to establish TCP connection" in line:
-                                    print("DEBUG: State - Connecting")
-                                    button.observer.set_state(ConnectionState.CONNECTING)
-                                elif "PENDING" in line:
-                                    print("DEBUG: State - Authenticating")
-                                    button.observer.set_state(ConnectionState.AUTHENTICATING)
-                                elif "Initialization Sequence Completed" in line:
-                                    print("DEBUG: State - Connected")
-                                    self.active_vpns[config_path] = process
-                                    button.observer.set_state(ConnectionState.CONNECTED)
-                                    break
-                                elif "AUTH_FAILED" in line:
-                                    print("DEBUG: Authentication failed")
-                                    process.terminate()
-                                    button.observer.set_state(ConnectionState.DISCONNECTED)
-                                    break
-                                elif "ERROR:" in line:
-                                    print(f"DEBUG: OpenVPN error detected: {line.strip()}")
-                                    process.terminate()
-                                    button.observer.set_state(ConnectionState.DISCONNECTED)
-                                    break
-
-                        # Check final process status
-                        returncode = process.poll()
-                        print(f"DEBUG: Process return code: {returncode}")
+                            
+                            # Check for timeout
+                            if time.time() - start_time > timeout:
+                                print("DEBUG: Connection timeout")
+                                process.terminate()
+                                break
+                            
+                            # Check for output
+                            reads = [process.stdout.fileno(), process.stderr.fileno()]
+                            ret = select.select(reads, [], [], 0.5)
+                            
+                            for fd in ret[0]:
+                                if fd == process.stdout.fileno():
+                                    line = process.stdout.readline()
+                                    if line:
+                                        print(f"OpenVPN: {line.strip()}")
+                                        # Detect connection states
+                                        if "Attempting to establish TCP connection" in line:
+                                            print("DEBUG: State - Connecting")
+                                            button.observer.set_state(ConnectionState.CONNECTING)
+                                        elif "PENDING" in line:
+                                            print("DEBUG: State - Authenticating")
+                                            button.observer.set_state(ConnectionState.AUTHENTICATING)
+                                        elif "Initialization Sequence Completed" in line:
+                                            print("DEBUG: State - Connected")
+                                            self.active_vpns[config_path] = process
+                                            button.observer.set_state(ConnectionState.CONNECTED)
+                                            return
+                                elif fd == process.stderr.fileno():
+                                    error = process.stderr.readline()
+                                    if error:
+                                        print(f"ERROR: {error.strip()}")
+                                        if "permission denied" in error.lower():
+                                            print("DEBUG: Sudo permission denied")
+                                            button.observer.set_state(ConnectionState.DISCONNECTED)
+                                            return
                         
                     except Exception as e:
                         print(f"DEBUG: Error during process execution: {str(e)}")
