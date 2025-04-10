@@ -73,10 +73,24 @@ jobs:
       run: |
         pyinstaller --name="VPN App" --windowed --onefile --hidden-import=PyQt5.sip --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets Main.py
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3.1.2  # Specify exact version
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4  # Latest stable version
       with:
         name: VPN-App-${{ matrix.os }}
-        path: dist/*
-        retention-days: 5  # Optional: specify how long to keep artifacts
-        if-no-files-found: error  # Fail if no files to upload
+        path: |
+          dist/*.app
+          dist/*.exe
+          dist/VPN*
+        compression-level: 9  # Maximum compression
+        retention-days: 5
+
+    - name: Upload Build Logs
+      if: always()  # Run even if previous steps fail
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs-${{ matrix.os }}
+        path: |
+          *.spec
+          *.log
+          build/*.txt
+        retention-days: 1
