@@ -258,8 +258,9 @@ class MainWindow(QMainWindow):
         # Etiqueta con el usuario
         user_label = QLabel(f"Usuario: {username}")
 
-        # Etiqueta con la contraseña
-        password_label = QLabel(f"Contraseña: {password}")
+        # Etiqueta con la contraseña enmascarada
+        masked_password = self.mask_password(password)
+        password_label = QLabel(f"Contraseña: {masked_password}")
 
         # Botón "Conectar"
         connect_button = QPushButton(ConnectionState.DISCONNECTED.value)
@@ -300,6 +301,11 @@ class MainWindow(QMainWindow):
         self.list_widget.setItemWidget(list_item, row_widget)
         self.update_connections_menu()  # Update menu after adding item
 
+    def mask_password(self, password):
+        """Mask password showing only first and last 4 characters"""
+        if len(password) <= 8:
+            return password  # If password is too short, return as is
+        return password[:4] + '*' * (len(password) - 8) + password[-4:]
 
     def toggle_vpn(self, button, config_path, username, password, connection_type='openvpn', extra_data=None):
         if not button:
