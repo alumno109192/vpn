@@ -241,15 +241,13 @@ class MainWindow(QMainWindow):
         row_layout = QVBoxLayout()  # Cambiar a QVBoxLayout para mostrar elementos en vertical
 
         # Botón "Eliminar"
-        delete_button = QPushButton("X")
-        delete_button.setStyleSheet("background-color: #FF7F7F; border-radius: 5px;")
-        delete_button.setIcon(QIcon.fromTheme("edit-delete"))
+        delete_button = QPushButton()
+        delete_button.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
         delete_button.clicked.connect(lambda: self.delete_item_from_list(row_widget))
 
         # Botón "Editar"
-        edit_button = QPushButton("Editar")
-        edit_button.setStyleSheet("background-color: #ADD8E6; border-radius: 5px;")
-        edit_button.setIcon(QIcon.fromTheme("document-edit"))
+        edit_button = QPushButton()
+        edit_button.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
         edit_button.clicked.connect(lambda: self.open_edit_window(option_name, config_path, username, password))
 
         # Etiqueta con el nombre de la opción
@@ -262,11 +260,21 @@ class MainWindow(QMainWindow):
         masked_password = self.mask_password(password)
         password_label = QLabel(f"Contraseña: {masked_password}")
 
-        # Botón "Conectar"
+        # Botón "Conectar" con icono nativo del sistema
         connect_button = QPushButton(ConnectionState.DISCONNECTED.value)
-        connect_button.setObjectName("Conectar")  # Add this line
+        connect_button.setObjectName("Conectar")
         connect_button.setStyleSheet("background-color: #98FB98; border-radius: 5px;")
-        connect_button.setIcon(QIcon.fromTheme("network-connect"))
+        
+        # Usar iconos nativos del sistema
+        if platform.system() == 'Darwin':  # macOS
+            connect_icon = self.style().standardIcon(QStyle.SP_CommandLink)
+        elif platform.system() == 'Windows':
+            connect_icon = self.style().standardIcon(QStyle.SP_DriveNetIcon)
+        else:  # Linux
+            connect_icon = self.style().standardIcon(QStyle.SP_DriveNetIcon)
+        
+        connect_button.setIcon(connect_icon)
+        
         connect_button.setProperty("config_path", config_path)
         connect_button.setProperty("username", username)
         connect_button.setProperty("password", password)
