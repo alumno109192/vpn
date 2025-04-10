@@ -16,16 +16,16 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
         python-version: ['3.9']
-      fail-fast: false  # Continue with other OS builds even if one fails
+      fail-fast: false
 
     steps:
-    - uses: actions/checkout@v3  # Updated to v3
+    - uses: actions/checkout@v3
 
     - name: Set up Python
-      uses: actions/setup-python@v4  # Updated to v4
+      uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'pip'  # Enable pip caching
+        cache: 'pip'
 
     - name: Install macOS dependencies
       if: matrix.os == 'macos-latest'
@@ -42,7 +42,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-dev python3-qt5 qt5-qmake build-essential libqt5x11extras5-dev qttools5-dev-tools openvpn libssl-dev libffi-dev
+        sudo apt-get install -y python3-dev python3-pyqt5 python3-pyqt5.qtwebengine qttools5-dev-tools build-essential libqt5x11extras5-dev openvpn libssl-dev libffi-dev
 
     - name: Install Windows dependencies
       if: matrix.os == 'windows-latest'
@@ -74,18 +74,18 @@ jobs:
         pyinstaller --name="VPN App" --windowed --onefile --hidden-import=PyQt5.sip --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets Main.py
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4  # Latest stable version
+      uses: actions/upload-artifact@v4
       with:
         name: VPN-App-${{ matrix.os }}
         path: |
           dist/*.app
           dist/*.exe
           dist/VPN*
-        compression-level: 9  # Maximum compression
+        compression-level: 9
         retention-days: 5
 
     - name: Upload Build Logs
-      if: always()  # Run even if previous steps fail
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: build-logs-${{ matrix.os }}
