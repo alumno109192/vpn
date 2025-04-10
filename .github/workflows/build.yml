@@ -71,7 +71,12 @@ jobs:
     - name: Create executable (MacOS)
       if: matrix.os == 'macos-latest'
       run: |
-        pyinstaller --name="VPN App" --windowed --onefile --add-binary='/usr/local/opt/openvpn/sbin/openvpn:.' --hidden-import=PyQt5.sip --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets Main.py
+        # Find OpenVPN location
+        OPENVPN_PATH=$(brew --prefix openvpn)/sbin/openvpn
+        echo "OpenVPN path: $OPENVPN_PATH"
+        
+        # Create executable with correct OpenVPN path
+        pyinstaller --name="VPN App" --windowed --onefile --add-binary="$OPENVPN_PATH:." --hidden-import=PyQt5.sip --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets Main.py
 
     - name: Create executable (Windows)
       if: matrix.os == 'windows-latest'
