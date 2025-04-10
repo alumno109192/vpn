@@ -44,8 +44,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install PyInstaller
         pip install pexpect
-        # Install PyQt5 from binary wheel
-        pip install --only-binary :all: PyQt5==5.15.9 PyQt5-Qt5 PyQt5-sip
+        # Install latest PyQt5 version
+        pip install --only-binary :all: PyQt5==5.15.11 PyQt5-Qt5 PyQt5-sip
 
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'

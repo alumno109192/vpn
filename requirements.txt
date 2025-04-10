@@ -1,6 +1,5 @@
-pexpect==4.8.0; sys_platform != 'win32'
+pexpect==4.9.0; sys_platform != 'win32'
 pywin32>=228; sys_platform == 'win32'
-# Only include PyQt5 for non-macOS platforms
-PyQt5==5.15.9; sys_platform != 'darwin'
-PyQt5-Qt5>=5.15.2; sys_platform != 'darwin'
-PyQt5-sip>=12.11.0; sys_platform != 'darwin'
+PyQt5==5.15.11
+PyQt5-Qt5>=5.15.2
+PyQt5-sip>=12.11.0
