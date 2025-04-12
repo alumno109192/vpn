@@ -99,13 +99,11 @@ jobs:
       run: |
         # Get brew prefix and find binaries
         BREW_PREFIX=$(brew --prefix)
+        STRONGSWAN_VERSION=$(brew list --versions strongswan | cut -d' ' -f2)
         
         # Find VPN binaries with absolute paths
         OPENVPN_PATH="$BREW_PREFIX/opt/openvpn/sbin/openvpn"
-        
-        # Find StrongSwan binary using find command
-        echo "Searching for StrongSwan binary..."
-        STRONGSWAN_PATH=$(find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon-cmd" | head -n 1)
+        STRONGSWAN_PATH="$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/charon-cmd"
         
         echo "OpenVPN path: $OPENVPN_PATH"
         echo "StrongSwan path: $STRONGSWAN_PATH"
@@ -114,7 +112,7 @@ jobs:
         echo "Listing OpenVPN directory:"
         ls -la "$BREW_PREFIX/opt/openvpn/sbin/"
         echo "Listing StrongSwan directory:"
-        ls -la "$(dirname "$STRONGSWAN_PATH")"
+        ls -la "$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/"
         
         # Verify binaries exist
         if [ ! -f "$OPENVPN_PATH" ]; then
@@ -124,8 +122,9 @@ jobs:
         
         if [ ! -f "$STRONGSWAN_PATH" ]; then
           echo "Error: StrongSwan binary not found"
-          echo "Searched in: $BREW_PREFIX/Cellar/strongswan"
-          find "$BREW_PREFIX/Cellar/strongswan" -type f -name "*charon*" 2>/dev/null
+          echo "Searched in: $BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/"
+          echo "Available files:"
+          find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon*" 2>/dev/null
           exit 1
         fi
         
