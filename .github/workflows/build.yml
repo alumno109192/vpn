@@ -38,12 +38,29 @@ jobs:
         brew install pyqt@5
         brew install openvpn
         brew install strongswan
-        echo 'export PATH="/usr/local/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
-        source ~/.bash_profile
-        # Create symlinks for ARM64 to x86_64 paths
+        
+        # Get correct paths for binaries
+        BREW_PREFIX=$(brew --prefix)
+        echo "Brew prefix: $BREW_PREFIX"
+        
+        # Create necessary directories
         sudo mkdir -p /usr/local/opt
-        sudo ln -s /opt/homebrew/opt/strongswan /usr/local/opt/strongswan
-        sudo ln -s /opt/homebrew/opt/openvpn /usr/local/opt/openvpn
+        sudo mkdir -p /opt/homebrew/opt
+        
+        # Create symlinks with proper permissions
+        if [ -d "$BREW_PREFIX/opt/strongswan" ]; then
+          sudo ln -sf "$BREW_PREFIX/opt/strongswan" /usr/local/opt/strongswan
+          sudo ln -sf "$BREW_PREFIX/opt/strongswan" /opt/homebrew/opt/strongswan
+        fi
+        
+        if [ -d "$BREW_PREFIX/opt/openvpn" ]; then
+          sudo ln -sf "$BREW_PREFIX/opt/openvpn" /usr/local/opt/openvpn
+          sudo ln -sf "$BREW_PREFIX/opt/openvpn" /opt/homebrew/opt/openvpn
+        fi
+        
+        # Verify installations
+        ls -la "$BREW_PREFIX/opt/strongswan/sbin/"
+        ls -la "$BREW_PREFIX/opt/openvpn/sbin/"
 
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
@@ -80,29 +97,24 @@ jobs:
     - name: Create executable (MacOS)
       if: matrix.os == 'macos-latest'
       run: |
-        # Find VPN binaries with fallback paths
-        if [ -f "/opt/homebrew/opt/openvpn/sbin/openvpn" ]; then
-          OPENVPN_PATH="/opt/homebrew/opt/openvpn/sbin/openvpn"
-        else
-          OPENVPN_PATH="/usr/local/opt/openvpn/sbin/openvpn"
-        fi
+        # Get brew prefix
+        BREW_PREFIX=$(brew --prefix)
         
-        if [ -f "/opt/homebrew/opt/strongswan/sbin/strongswan" ]; then
-          STRONGSWAN_PATH="/opt/homebrew/opt/strongswan/sbin/strongswan"
-        else
-          STRONGSWAN_PATH="/usr/local/opt/strongswan/sbin/strongswan"
-        fi
+        # Find VPN binaries with absolute paths
+        OPENVPN_PATH="$BREW_PREFIX/opt/openvpn/sbin/openvpn"
+        STRONGSWAN_PATH="$BREW_PREFIX/opt/strongswan/sbin/strongswan"
         
         echo "OpenVPN path: $OPENVPN_PATH"
         echo "StrongSwan path: $STRONGSWAN_PATH"
         
         # Verify binaries exist
-        if [ ! -f "$OPENVPN_PATH" ] || [ ! -f "$STRONGSWAN_PATH" ]; then
-          echo "Error: VPN binaries not found"
-          ls -la /opt/homebrew/opt/openvpn/sbin/
-          ls -la /opt/homebrew/opt/strongswan/sbin/
-          ls -la /usr/local/opt/openvpn/sbin/
-          ls -la /usr/local/opt/strongswan/sbin/
+        if [ ! -f "$OPENVPN_PATH" ]; then
+          echo "Error: OpenVPN binary not found at $OPENVPN_PATH"
+          exit 1
+        fi
+        
+        if [ ! -f "$STRONGSWAN_PATH" ]; then
+          echo "Error: StrongSwan binary not found at $STRONGSWAN_PATH"
           exit 1
         fi
         
