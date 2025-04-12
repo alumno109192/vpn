@@ -97,13 +97,15 @@ jobs:
     - name: Create executable (MacOS)
       if: matrix.os == 'macos-latest'
       run: |
-        # Get brew prefix and version information
+        # Get brew prefix and find binaries
         BREW_PREFIX=$(brew --prefix)
-        STRONGSWAN_VERSION=$(brew list --versions strongswan | cut -d' ' -f2)
         
         # Find VPN binaries with absolute paths
         OPENVPN_PATH="$BREW_PREFIX/opt/openvpn/sbin/openvpn"
-        STRONGSWAN_PATH="$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/charon-cmd"
+        
+        # Find StrongSwan binary using find command
+        echo "Searching for StrongSwan binary..."
+        STRONGSWAN_PATH=$(find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon-cmd" | head -n 1)
         
         echo "OpenVPN path: $OPENVPN_PATH"
         echo "StrongSwan path: $STRONGSWAN_PATH"
@@ -112,7 +114,7 @@ jobs:
         echo "Listing OpenVPN directory:"
         ls -la "$BREW_PREFIX/opt/openvpn/sbin/"
         echo "Listing StrongSwan directory:"
-        ls -la "$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/"
+        ls -la "$(dirname "$STRONGSWAN_PATH")"
         
         # Verify binaries exist
         if [ ! -f "$OPENVPN_PATH" ]; then
@@ -121,9 +123,9 @@ jobs:
         fi
         
         if [ ! -f "$STRONGSWAN_PATH" ]; then
-          echo "Error: StrongSwan binary not found at $STRONGSWAN_PATH"
-          echo "Searching for StrongSwan binaries..."
-          find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon-cmd" 2>/dev/null
+          echo "Error: StrongSwan binary not found"
+          echo "Searched in: $BREW_PREFIX/Cellar/strongswan"
+          find "$BREW_PREFIX/Cellar/strongswan" -type f -name "*charon*" 2>/dev/null
           exit 1
         fi
         
