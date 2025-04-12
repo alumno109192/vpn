@@ -45,20 +45,18 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-dev python3-pyqt5 python3-pyqt5.qtwebengine \
-        qttools5-dev-tools build-essential libqt5x11extras5-dev \
-        openvpn strongswan libssl-dev libffi-dev
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-dev python3-pyqt5 \
+          python3-pyqt5.qtwebengine qttools5-dev-tools build-essential \
+          libqt5x11extras5-dev openvpn strongswan libssl-dev libffi-dev
 
     - name: Install Windows dependencies
       if: matrix.os == 'windows-latest'
-      continue-on-error: true  # Add this line to continue even if strongswan fails
       run: |
         python -m pip install --upgrade pip
         pip install wheel
         pip install pywin32
         choco install openvpn -y
-        # StrongSwan is not available on Windows, skip it
-        # choco install strongswan -y  # Remove or comment this line
+        # Note: StrongSwan not available for Windows, using built-in VPN client instead
 
     - name: Install Python dependencies (macOS)
       if: matrix.os == 'macos-latest'
@@ -100,17 +98,18 @@ jobs:
     - name: Create executable (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        pyinstaller --name="VPN App" ^
-          --windowed ^
-          --onefile ^
-          --hidden-import=win32api ^
-          --hidden-import=win32con ^
-          --hidden-import=win32gui ^
-          --hidden-import=PyQt5.sip ^
-          --hidden-import=PyQt5.QtCore ^
-          --hidden-import=PyQt5.QtGui ^
-          --hidden-import=PyQt5.QtWidgets ^
-          --add-binary="C:\Program Files\OpenVPN\bin\openvpn.exe;OpenVPN" ^
+        $env:PATH = "C:\Program Files\OpenVPN\bin;$env:PATH"
+        pyinstaller --name="VPN App" `
+          --windowed `
+          --onefile `
+          --hidden-import=win32api `
+          --hidden-import=win32con `
+          --hidden-import=win32gui `
+          --hidden-import=PyQt5.sip `
+          --hidden-import=PyQt5.QtCore `
+          --hidden-import=PyQt5.QtGui `
+          --hidden-import=PyQt5.QtWidgets `
+          --add-binary="C:\Program Files\OpenVPN\bin\openvpn.exe;." `
           Main.py
 
     - name: Create executable (Linux)
