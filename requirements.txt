@@ -1,5 +1,24 @@
-pexpect==4.9.0; sys_platform != 'win32'
-pywin32>=228; sys_platform == 'win32'
+# GUI Dependencies
 PyQt5==5.15.11
 PyQt5-Qt5>=5.15.2
 PyQt5-sip>=12.11.0
+
+# System-specific Dependencies
+pexpect==4.9.0; sys_platform != 'win32'
+pywin32>=228; sys_platform == 'win32'
+
+# Network Dependencies
+requests>=2.31.0
+urllib3>=2.1.0
+
+# VPN Dependencies
+strongswan>=5.9.11; sys_platform == 'darwin' or sys_platform == 'linux'
+openvpn>=2.5.0; sys_platform == 'darwin' or sys_platform == 'linux'
+
+# Utility Dependencies
+packaging>=23.2
+setuptools>=69.0.3
+wheel>=0.42.0
+
+# Development Dependencies
+pyinstaller>=6.3.0
