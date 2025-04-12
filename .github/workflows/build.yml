@@ -40,6 +40,10 @@ jobs:
         brew install strongswan
         echo 'export PATH="/usr/local/opt/qt@5/bin:$PATH"' >> ~/.bash_profile
         source ~/.bash_profile
+        # Create symlinks for ARM64 to x86_64 paths
+        sudo mkdir -p /usr/local/opt
+        sudo ln -s /opt/homebrew/opt/strongswan /usr/local/opt/strongswan
+        sudo ln -s /opt/homebrew/opt/openvpn /usr/local/opt/openvpn
 
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
@@ -76,12 +80,31 @@ jobs:
     - name: Create executable (MacOS)
       if: matrix.os == 'macos-latest'
       run: |
-        # Find VPN binaries
-        OPENVPN_PATH=$(brew --prefix openvpn)/sbin/openvpn
-        STRONGSWAN_PATH=$(brew --prefix strongswan)/sbin/strongswan
+        # Find VPN binaries with fallback paths
+        if [ -f "/opt/homebrew/opt/openvpn/sbin/openvpn" ]; then
+          OPENVPN_PATH="/opt/homebrew/opt/openvpn/sbin/openvpn"
+        else
+          OPENVPN_PATH="/usr/local/opt/openvpn/sbin/openvpn"
+        fi
+        
+        if [ -f "/opt/homebrew/opt/strongswan/sbin/strongswan" ]; then
+          STRONGSWAN_PATH="/opt/homebrew/opt/strongswan/sbin/strongswan"
+        else
+          STRONGSWAN_PATH="/usr/local/opt/strongswan/sbin/strongswan"
+        fi
         
         echo "OpenVPN path: $OPENVPN_PATH"
         echo "StrongSwan path: $STRONGSWAN_PATH"
+        
+        # Verify binaries exist
+        if [ ! -f "$OPENVPN_PATH" ] || [ ! -f "$STRONGSWAN_PATH" ]; then
+          echo "Error: VPN binaries not found"
+          ls -la /opt/homebrew/opt/openvpn/sbin/
+          ls -la /opt/homebrew/opt/strongswan/sbin/
+          ls -la /usr/local/opt/openvpn/sbin/
+          ls -la /usr/local/opt/strongswan/sbin/
+          exit 1
+        fi
         
         # Create executable with all dependencies
         pyinstaller --name="VPN App" \
