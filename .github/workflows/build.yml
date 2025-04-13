@@ -101,9 +101,21 @@ jobs:
         BREW_PREFIX=$(brew --prefix)
         STRONGSWAN_VERSION=$(brew list --versions strongswan | cut -d' ' -f2)
         
-        # Find VPN binaries with absolute paths
+        # Set up binary paths
         OPENVPN_PATH="$BREW_PREFIX/opt/openvpn/sbin/openvpn"
-        STRONGSWAN_PATH="$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/charon-cmd"
+        
+        # Search for StrongSwan binary
+        echo "Searching for StrongSwan binary..."
+        echo "Looking in $BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION"
+        
+        # Find StrongSwan binary with multiple fallback options
+        for binary in "charon-cmd" "charon" "stroke"; do
+          STRONGSWAN_PATH=$(find "$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION" -type f -name "$binary" | head -n 1)
+          if [ ! -z "$STRONGSWAN_PATH" ]; then
+            echo "Found StrongSwan binary: $STRONGSWAN_PATH"
+            break
+          fi
+        done
         
         # Debug information
         echo "Brew prefix: $BREW_PREFIX"
@@ -111,33 +123,33 @@ jobs:
         echo "OpenVPN path: $OPENVPN_PATH"
         echo "StrongSwan path: $STRONGSWAN_PATH"
         
-        # List binary locations
+        # List OpenVPN files
         echo "OpenVPN files:"
-        ls -la "$BREW_PREFIX/opt/openvpn/sbin/"
-        echo "StrongSwan files:"
-        ls -la "$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/"
+        ls -la "$(dirname "$OPENVPN_PATH")"
         
-        # Verify binaries exist and are executable
-        if [ ! -f "$OPENVPN_PATH" ] || [ ! -x "$OPENVPN_PATH" ]; then
-          echo "Error: OpenVPN binary not found or not executable"
+        # List StrongSwan files
+        echo "StrongSwan files:"
+        if [ ! -z "$STRONGSWAN_PATH" ]; then
+          ls -la "$(dirname "$STRONGSWAN_PATH")"
+        else
+          echo "Error: Could not find any StrongSwan binary"
+          find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon*" -o -name "stroke"
           exit 1
         fi
         
-        if [ ! -f "$STRONGSWAN_PATH" ]; then
-          echo "StrongSwan binary not found at expected path"
-          echo "Searching for alternatives..."
-          STRONGSWAN_PATH=$(find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon-cmd" | head -n 1)
-          if [ -z "$STRONGSWAN_PATH" ]; then
-            echo "No charon-cmd binary found. Trying charon..."
-            STRONGSWAN_PATH=$(find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon" | head -n 1)
-          fi
-          if [ -z "$STRONGSWAN_PATH" ]; then
-            echo "Error: Could not find any suitable StrongSwan binary"
-            exit 1
-          fi
+        # Verify OpenVPN binary
+        if [ ! -f "$OPENVPN_PATH" ] || [ ! -x "$OPENVPN_PATH" ]; then
+          echo "Error: OpenVPN binary not found or not executable at $OPENVPN_PATH"
+          exit 1
         fi
         
-        # Create executable with all dependencies
+        # Verify StrongSwan binary
+        if [ ! -f "$STRONGSWAN_PATH" ] || [ ! -x "$STRONGSWAN_PATH" ]; then
+          echo "Error: StrongSwan binary not found or not executable at $STRONGSWAN_PATH"
+          exit 1
+        fi
+        
+        # Create executable
         pyinstaller --name="VPN App" \
           --windowed \
           --onefile \
