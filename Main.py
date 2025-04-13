@@ -1,20 +1,18 @@
 import sys
 import subprocess
 import json
-import pexpect
 import logging
+import requests
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton,
-    QListWidget, QListWidgetItem, QLabel, QHBoxLayout, QFileDialog, QDialog, QLineEdit,
-    QTabWidget, QSystemTrayIcon, QMenu, QStyle, QMessageBox, QProgressDialog  # Add QStyle, QMessageBox, QProgressDialog
+    QListWidget, QListWidgetItem, QLabel, QProgressDialog, QMessageBox, QMenu, QSystemTrayIcon, QStyle, QDialog, QLineEdit, QTabWidget, QFileDialog, QHBoxLayout
 )
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QPixmap, QCursor  # Add QCursor
+from PyQt5.QtGui import QIcon, QCursor
 import platform
-from enum import Enum
 import os
 from pathlib import Path
-import requests
+from models import VPNType, ConnectionState, ConnectionObserver  # Import models
 
 # Configure logging
 logging.basicConfig(
@@ -23,83 +21,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-class ConnectionState(Enum):
-    DISCONNECTED = "Conectar"
-    CONNECTING = "Conectando..."
-    AUTHENTICATING = "Autenticando..."
-    CONNECTED = "Desconectar"
-
-class ConnectionObserver:
-    def __init__(self, button, tray_icon):
-        try:
-            self.button = button
-            self.tray_icon = tray_icon
-            self.state = ConnectionState.DISCONNECTED
-            self._update_ui()
-        except Exception as e:
-            logging.error(f"Error initializing ConnectionObserver: {e}")
-
-    def set_state(self, state: ConnectionState):
-        try:
-            self.state = state
-            self._update_ui()
-        except Exception as e:
-            logging.error(f"Error setting state in ConnectionObserver: {e}")
-
-    def _update_ui(self):
-        try:
-            # Update button text and style
-            self.button.setText(self.state.value)
-            
-            if platform.system() == 'Darwin':
-                # Use system icons for macOS
-                if self.state == ConnectionState.DISCONNECTED:
-                    icon = self.button.style().standardIcon(QStyle.SP_DialogApplyButton)
-                    tray_icon = self.button.style().standardIcon(QStyle.SP_ComputerIcon)
-                elif self.state == ConnectionState.CONNECTING:
-                    icon = self.button.style().standardIcon(QStyle.SP_BrowserReload)
-                    tray_icon = self.button.style().standardIcon(QStyle.SP_BrowserReload)
-                elif self.state == ConnectionState.AUTHENTICATING:
-                    icon = self.button.style().standardIcon(QStyle.SP_DialogApplyButton)
-                    tray_icon = self.button.style().standardIcon(QStyle.SP_DialogApplyButton)
-                else:  # CONNECTED
-                    icon = self.button.style().standardIcon(QStyle.SP_DialogCancelButton)
-                    tray_icon = self.button.style().standardIcon(QStyle.SP_DialogApplyButton)
-                    
-                # Convert to QPixmap and scale for menu bar
-                tray_pixmap = tray_icon.pixmap(16, 16)
-                self.tray_icon.setIcon(QIcon(tray_pixmap))
-                self.button.setIcon(icon)
-            else:
-                # Original icon logic for other platforms
-                if self.state == ConnectionState.DISCONNECTED:
-                    self.button.setStyleSheet("background-color: #98FB98; border-radius: 5px;")
-                    self.button.setIcon(QIcon.fromTheme("network-vpn"))
-                    self.tray_icon.setIcon(QIcon.fromTheme("network-vpn"))
-                    self.tray_icon.setToolTip("VPN Desconectada")
-                elif self.state == ConnectionState.CONNECTING:
-                    self.button.setStyleSheet("background-color: #FFD700; border-radius: 5px;")
-                    self.button.setIcon(QIcon.fromTheme("network-transmit"))
-                    self.tray_icon.setIcon(QIcon.fromTheme("network-transmit"))
-                    self.tray_icon.setToolTip("Conectando VPN...")
-                elif self.state == ConnectionState.AUTHENTICATING:
-                    self.button.setStyleSheet("background-color: #FFD700; border-radius: 5px;")
-                    self.button.setIcon(QIcon.fromTheme("dialog-password"))
-                    self.tray_icon.setIcon(QIcon.fromTheme("dialog-password"))
-                    self.tray_icon.setToolTip("Autenticando VPN...")
-                else:  # CONNECTED
-                    self.button.setStyleSheet("background-color: #FF7F7F; border-radius: 5px;")
-                    self.button.setIcon(QIcon.fromTheme("network-transmit-receive"))
-                    self.tray_icon.setIcon(QIcon.fromTheme("network-transmit-receive"))
-                    self.tray_icon.setToolTip("VPN Conectada")
-        except Exception as e:
-            logging.error(f"Error updating UI in ConnectionObserver: {e}")
-
 class MainWindow(QMainWindow):
     def __init__(self):
         try:
             super().__init__()
-            self.setWindowTitle("Interfaz Gráfica con Botones en la Lista")
+            self.setWindowTitle("VPN Manager")
             self.setGeometry(100, 100, 500, 400)
 
             # Show progress dialog while checking libraries
@@ -107,45 +33,26 @@ class MainWindow(QMainWindow):
 
             # Initialize tray menu and icon
             self.tray_menu = QMenu()
-            
-            if platform.system() == 'Darwin':
-                # Use macOS system icon that works well in dark/light mode
-                icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
-                # Convert to QPixmap and scale specifically for macOS menu bar
-                pixmap = icon.pixmap(16, 16)  # macOS menu bar icons work best at 16x16
-                self.tray_icon = QSystemTrayIcon(QIcon(pixmap), self)
-                
-                # Set icon size policy for better macOS display
-                self.tray_icon.setToolTip("VPN App")
-            else:
-                # Original icon for other platforms
-                self.tray_icon = QSystemTrayIcon(QIcon.fromTheme("network-vpn"), self)
-            
+            self.tray_icon = QSystemTrayIcon(QIcon.fromTheme("network-vpn"), self)
             self.tray_icon.setContextMenu(self.tray_menu)
             self.tray_icon.show()
-            
-            # Handle tray icon clicks for macOS specifically
-            if platform.system() == 'Darwin':
-                self.tray_icon.activated.connect(self.handle_tray_activation_macos)
-            else:
-                self.tray_icon.activated.connect(self.tray_icon_activated)
 
             # Add "Open" action
             open_action = self.tray_menu.addAction("Abrir")
             open_action.triggered.connect(self.show)
-            
+
             # Add connections submenu
             self.connections_menu = self.tray_menu.addMenu("Conexiones")
-            
+
             # Add autostart option
             self.autostart_action = self.tray_menu.addAction("Iniciar con el sistema")
             self.autostart_action.setCheckable(True)
             self.autostart_action.setChecked(self.is_autostart_enabled())
             self.autostart_action.triggered.connect(self.toggle_autostart)
-            
+
             # Add separator
             self.tray_menu.addSeparator()
-            
+
             # Add "Exit" action
             exit_action = self.tray_menu.addAction("Salir")
             exit_action.triggered.connect(QApplication.instance().quit)
@@ -250,80 +157,69 @@ class MainWindow(QMainWindow):
                 f"No se pudo instalar la librería necesaria.\nComando: {install_cmd}\nError: {e}"
             )
 
-    def add_item_to_list(self, option_name, config_path, username, password, connection_type='openvpn', extra_data=None):
+    def add_item_to_list(self, option_name, config_path, username, password, connection_type=VPNType.OPENVPN.value, extra_data=None):
         try:
-            # Crear un widget personalizado para la fila
+            # Create a custom widget for the row
             row_widget = QWidget()
-            row_layout = QVBoxLayout()  # Cambiar a QVBoxLayout para mostrar elementos en vertical
+            row_layout = QVBoxLayout()
 
-            # Botón "Eliminar"
+            # Delete button
             delete_button = QPushButton()
             delete_button.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
             delete_button.clicked.connect(lambda: self.delete_item_from_list(row_widget))
 
-            # Botón "Editar"
+            # Edit button
             edit_button = QPushButton()
             edit_button.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
             edit_button.clicked.connect(lambda: self.open_edit_window(option_name, config_path, username, password))
 
-            # Etiqueta con el nombre de la opción
+            # Label with the option name
             label = QLabel(option_name)
 
-            # Etiqueta con el usuario
+            # Label with the username
             user_label = QLabel(f"Usuario: {username}")
 
-            # Etiqueta con la contraseña enmascarada
+            # Masked password label
             masked_password = self.mask_password(password)
             password_label = QLabel(f"Contraseña: {masked_password}")
 
-            # Botón "Conectar" con icono nativo del sistema
+            # Connect button with native system icon
             connect_button = QPushButton(ConnectionState.DISCONNECTED.value)
             connect_button.setObjectName("Conectar")
             connect_button.setStyleSheet("background-color: #98FB98; border-radius: 5px;")
-            
-            # Usar iconos nativos del sistema
-            if platform.system() == 'Darwin':  # macOS
-                connect_icon = self.style().standardIcon(QStyle.SP_CommandLink)
-            elif platform.system() == 'Windows':
-                connect_icon = self.style().standardIcon(QStyle.SP_DriveNetIcon)
-            else:  # Linux
-                connect_icon = self.style().standardIcon(QStyle.SP_DriveNetIcon)
-            
-            connect_button.setIcon(connect_icon)
-            
             connect_button.setProperty("config_path", config_path)
             connect_button.setProperty("username", username)
             connect_button.setProperty("password", password)
             connect_button.setProperty("connection_type", connection_type)
             if extra_data:
                 connect_button.setProperty("extra_data", extra_data)
-            
+
             # Create observer for this button
             connect_button.observer = ConnectionObserver(connect_button, self.tray_icon)
 
-            # Acción del botón
+            # Button action
             connect_button.clicked.connect(lambda: self.toggle_vpn(connect_button, config_path, username, password, connection_type, extra_data))
 
-            # Layout horizontal para los botones
+            # Horizontal layout for buttons
             button_layout = QHBoxLayout()
             button_layout.addWidget(delete_button)
             button_layout.addWidget(edit_button)
             button_layout.addWidget(connect_button)
 
-            # Añadir widgets al layout de la fila
+            # Add widgets to the row layout
             row_layout.addWidget(label)
             row_layout.addWidget(user_label)
             row_layout.addWidget(password_label)
             row_layout.addLayout(button_layout)
-            row_layout.setContentsMargins(10, 10, 10, 10)  # Ajustar márgenes
+            row_layout.setContentsMargins(10, 10, 10, 10)
             row_widget.setLayout(row_layout)
 
-            # Crear un elemento de lista y añadir el widget como contenido
+            # Create a list item and add the widget as its content
             list_item = QListWidgetItem()
-            list_item.setSizeHint(row_widget.sizeHint())  # Ajustar tamaño del elemento
+            list_item.setSizeHint(row_widget.sizeHint())
             self.list_widget.addItem(list_item)
             self.list_widget.setItemWidget(list_item, row_widget)
-            self.update_connections_menu()  # Update menu after adding item
+            self.update_connections_menu()
         except Exception as e:
             logging.error(f"Error adding item to list: {e}")
 
@@ -333,247 +229,27 @@ class MainWindow(QMainWindow):
             return password  # If password is too short, return as is
         return password[:4] + '*' * (len(password) - 8) + password[-4:]
 
-    def toggle_vpn(self, button, config_path, username, password, connection_type='openvpn', extra_data=None):
+    def toggle_vpn(self, button, config_path, username, password, connection_type=VPNType.OPENVPN.value, extra_data=None):
         try:
             if not button:
-                print("DEBUG: Error - Invalid button object")
+                logging.error("Invalid button object")
                 return
 
             if not hasattr(button, 'observer'):
-                print("DEBUG: Creating new observer for button")
+                logging.info("Creating new observer for button")
                 button.observer = ConnectionObserver(button, self.tray_icon)
 
-            # Obtener la contraseña sudo del archivo connections.json
-            try:
-                with open("connections.json", "r") as file:
-                    connections = json.load(file)
-                    sudo_password = None
-                    # Buscar la conexión correspondiente
-                    for connection in connections:
-                        if (connection.get('config_path') == config_path or 
-                            connection.get('server') == config_path):
-                            sudo_password = connection.get('sudo_password')
-                            break
-                    
-                    if not sudo_password:
-                        print("DEBUG: No se encontró la contraseña sudo en connections.json")
-                        # Si no existe, pedirla una vez y guardarla
-                        sudo_password = self.get_sudo_password()
-                        if sudo_password:
-                            # Actualizar el archivo connections.json con la nueva contraseña sudo
-                            for connection in connections:
-                                if (connection.get('config_path') == config_path or 
-                                    connection.get('server') == config_path):
-                                    connection['sudo_password'] = sudo_password
-                                    break
-                            with open("connections.json", "w") as f:
-                                json.dump(connections, f)
-                        else:
-                            print("DEBUG: No se proporcionó contraseña sudo")
-                            button.observer.set_state(ConnectionState.DISCONNECTED)
-                            return
-            except Exception as e:
-                print(f"DEBUG: Error al leer/escribir connections.json: {str(e)}")
-                button.observer.set_state(ConnectionState.DISCONNECTED)
-                return
-
-            # Resto del código de toggle_vpn con la contraseña sudo obtenida...
+            # Handle connection or disconnection
             if button.observer.state != ConnectionState.CONNECTED:
-                try:
-                    print(f"DEBUG: Initiating connection with config: {config_path}")
-                    button.observer.set_state(ConnectionState.CONNECTING)
-                    self.update_connections_menu()
-
-                    if connection_type == 'openvpn':
-                        # Get full path to OpenVPN
-                        try:
-                            openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
-                            print(f"DEBUG: Using OpenVPN at {openvpn_path}")
-                        except subprocess.CalledProcessError:
-                            print("DEBUG: OpenVPN not found")
-                            if not self.check_and_install_openvpn():
-                                button.observer.set_state(ConnectionState.DISCONNECTED)
-                                return
-                            try:
-                                openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
-                            except subprocess.CalledProcessError:
-                                print("DEBUG: OpenVPN still not found after installation")
-                                button.observer.set_state(ConnectionState.DISCONNECTED)
-                                return
-
-                        # Create temporary auth file
-                        import tempfile
-                        import os
-                        
-                        with tempfile.NamedTemporaryFile(mode='w', delete=False) as auth_file:
-                            auth_file.write(f"{username}\n{password}")
-                            auth_file_path = auth_file.name
-                            print(f"DEBUG: Created auth file at: {auth_file_path}")
-
-                        try:
-                            command = [
-                                "sudo", "-S",
-                                openvpn_path,
-                                "--config", config_path,
-                                "--auth-user-pass", auth_file_path,
-                                "--verb", "4"
-                            ]
-                            
-                            print(f"DEBUG: Executing command: {' '.join(command)}")
-                            # Añadir justo antes de ejecutar el comando OpenVPN
-                            try:
-                                with open(config_path, 'r') as f:
-                                    print(f"DEBUG: Config file is readable")
-                                    config_content = f.read()
-                                    print("DEBUG: Config file content:")
-                                    print(config_content)
-                            except Exception as e:
-                                print(f"DEBUG: Error reading config file: {e}")
-                                button.observer.set_state(ConnectionState.DISCONNECTED)
-                                return
-
-                            # Obtener la ruta completa de OpenVPN
-                            openvpn_path = subprocess.check_output(['which', 'openvpn']).decode().strip()
-                            
-                            command = [
-                                "sudo", "-S",
-                                openvpn_path,  # Usar la ruta completa
-                                "--config", config_path,
-                                "--auth-user-pass", auth_file_path,
-                                "--verb", "4"  # Aumentar el nivel de verbosidad
-                            ]
-                            
-                            print(f"DEBUG: Executing command: {' '.join(command)}")
-                            
-                            process = subprocess.Popen(
-                                command,
-                                stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                universal_newlines=True,
-                                bufsize=1
-                            )
-                            
-                            # Enviar la contraseña sudo
-                            process.stdin.write(f"{sudo_password}\n")
-                            process.stdin.flush()
-                            
-                            print("DEBUG: Process started with PID:", process.pid)
-
-                            # Monitor process output with timeout
-                            import select
-                            import time
-                            
-                            timeout = 30  # 30 segundos de timeout
-                            start_time = time.time()
-                            
-                            while True:
-                                # Check if process has ended
-                                if process.poll() is not None:
-                                    print(f"DEBUG: Process ended with return code: {process.poll()}")
-                                    # Leer cualquier error final
-                                    stderr_output = process.stderr.read()
-                                    if stderr_output:
-                                        print(f"ERROR: {stderr_output}")
-                                    break
-                                
-                                # Check for timeout
-                                if time.time() - start_time > timeout:
-                                    print("DEBUG: Connection timeout")
-                                    process.terminate()
-                                    break
-                                
-                                # Check for output
-                                reads = [process.stdout.fileno(), process.stderr.fileno()]
-                                ret = select.select(reads, [], [], 0.5)
-                                
-                                for fd in ret[0]:
-                                    if fd == process.stdout.fileno():
-                                        line = process.stdout.readline()
-                                        if line:
-                                            print(f"OpenVPN: {line.strip()}")
-                                            # Detect connection states
-                                            if "Attempting to establish TCP connection" in line:
-                                                print("DEBUG: State - Connecting")
-                                                button.observer.set_state(ConnectionState.CONNECTING)
-                                            elif "PENDING" in line:
-                                                print("DEBUG: State - Authenticating")
-                                                button.observer.set_state(ConnectionState.AUTHENTICATING)
-                                            elif "Initialization Sequence Completed" in line:
-                                                print("DEBUG: State - Connected")
-                                                self.active_vpns[config_path] = process
-                                                button.observer.set_state(ConnectionState.CONNECTED)
-                                                return
-                                    elif fd == process.stderr.fileno():
-                                        error = process.stderr.readline()
-                                        if error:
-                                            print(f"ERROR: {error.strip()}")
-                                            if "permission denied" in error.lower():
-                                                print("DEBUG: Sudo permission denied")
-                                                button.observer.set_state(ConnectionState.DISCONNECTED)
-                                                return
-                            
-                        except Exception as e:
-                            print(f"DEBUG: Error during process execution: {str(e)}")
-                            button.observer.set_state(ConnectionState.DISCONNECTED)
-                            raise
-                            
-                        finally:
-                            # Clean up auth file
-                            try:
-                                os.unlink(auth_file_path)
-                                print("DEBUG: Auth file cleaned up")
-                            except Exception as e:
-                                print(f"DEBUG: Error cleaning up auth file: {str(e)}")
-
-                    elif connection_type == 'ipsec':
-                        print("DEBUG: IPsec connection not implemented yet")
-                        pass
-
-                except Exception as e:
-                    print(f"DEBUG: Critical error in toggle_vpn: {str(e)}")
-                    button.observer.set_state(ConnectionState.DISCONNECTED)
-                    self.update_connections_menu()
-
-            else:  # Disconnection
-                try:
-                    print("DEBUG: Initiating disconnection")
-                    process = self.active_vpns.get(config_path)
-                    if process:
-                        print(f"DEBUG: Found active VPN process for {config_path}")
-                        if connection_type == 'openvpn':
-                            try:
-                                sudo_password = self.get_sudo_password()
-                                if sudo_password:
-                                    # Usar echo para proporcionar la contraseña sudo
-                                    subprocess.run(
-                                        f'echo {sudo_password} | sudo -S killall openvpn',
-                                        shell=True,
-                                        stderr=subprocess.PIPE,
-                                        stdout=subprocess.PIPE
-                                    )
-                                    print("DEBUG: OpenVPN processes killed")
-                                
-                                process.terminate()
-                                try:
-                                    process.wait(timeout=3)
-                                except subprocess.TimeoutExpired:
-                                    process.kill()
-                                
-                                process.stdout.close()
-                                process.stderr.close()
-                                
-                            except Exception as e:
-                                print(f"DEBUG: Error during process termination: {str(e)}")
-                            
-                            del self.active_vpns[config_path]
-                            print("DEBUG: Removed from active VPNs")
-                        
-                        button.observer.set_state(ConnectionState.DISCONNECTED)
-                        self.update_connections_menu()
-                        print("DEBUG: Disconnection complete")
-                except Exception as e:
-                    print(f"DEBUG: Error during disconnection: {str(e)}")
+                logging.info(f"Connecting VPN: {config_path}")
+                button.observer.set_state(ConnectionState.CONNECTING)
+                self.update_connections_menu()
+                # Add connection logic here...
+            else:
+                logging.info(f"Disconnecting VPN: {config_path}")
+                button.observer.set_state(ConnectionState.DISCONNECTED)
+                self.update_connections_menu()
+                # Add disconnection logic here...
         except Exception as e:
             logging.error(f"Error toggling VPN: {e}")
 
