@@ -97,33 +97,55 @@ jobs:
     - name: Create executable (MacOS)
       if: matrix.os == 'macos-latest'
       run: |
-        # Get brew prefix
+        # Get brew prefix and StrongSwan version
         BREW_PREFIX=$(brew --prefix)
+        STRONGSWAN_VERSION=$(brew list --versions strongswan | cut -d' ' -f2)
+        
+        # Debug information
+        echo "Brew prefix: $BREW_PREFIX"
+        echo "StrongSwan version: $STRONGSWAN_VERSION"
         
         # Set up binary paths
         OPENVPN_PATH="$BREW_PREFIX/opt/openvpn/sbin/openvpn"
         
-        # Find StrongSwan binary directly in Cellar
-        STRONGSWAN_PATH=$(find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon-cmd" -o -name "charon" | grep "libexec/ipsec" | head -n 1)
+        # Look for StrongSwan binaries in multiple locations
+        echo "Searching for StrongSwan binaries..."
+        STRONGSWAN_PATHS=(
+          "$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/charon-cmd"
+          "$BREW_PREFIX/Cellar/strongswan/$STRONGSWAN_VERSION/libexec/ipsec/charon"
+          "$BREW_PREFIX/opt/strongswan/libexec/ipsec/charon-cmd"
+          "$BREW_PREFIX/opt/strongswan/libexec/ipsec/charon"
+        )
+        
+        # Find first available StrongSwan binary
+        for path in "${STRONGSWAN_PATHS[@]}"; do
+          if [ -f "$path" ] && [ -x "$path" ]; then
+            STRONGSWAN_PATH="$path"
+            break
+          fi
+        done
         
         echo "OpenVPN path: $OPENVPN_PATH"
         echo "StrongSwan path: $STRONGSWAN_PATH"
         
-        # Verify binaries exist
+        # Verify OpenVPN binary
         if [ ! -f "$OPENVPN_PATH" ] || [ ! -x "$OPENVPN_PATH" ]; then
           echo "Error: OpenVPN binary not found or not executable"
           ls -la "$BREW_PREFIX/opt/openvpn/sbin/"
           exit 1
         fi
         
+        # Verify StrongSwan binary
         if [ -z "$STRONGSWAN_PATH" ]; then
-          echo "Error: StrongSwan binary not found"
-          echo "Searching in Cellar..."
+          echo "Error: No suitable StrongSwan binary found"
+          echo "Searched in:"
+          printf '%s\n' "${STRONGSWAN_PATHS[@]}"
+          echo "Available files in Cellar:"
           find "$BREW_PREFIX/Cellar/strongswan" -type f -name "charon*"
           exit 1
         fi
         
-        # Create executable (all on one line)
+        # Create executable
         pyinstaller --name="VPN App" --windowed --onefile --add-binary="$OPENVPN_PATH:." --add-binary="$STRONGSWAN_PATH:." --hidden-import=PyQt5.sip --hidden-import=PyQt5.QtCore --hidden-import=PyQt5.QtGui --hidden-import=PyQt5.QtWidgets Main.py
 
     - name: Create executable (Windows)
