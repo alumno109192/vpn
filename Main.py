@@ -3,6 +3,7 @@ import subprocess
 import json
 import logging
 import requests
+import tempfile
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton,
     QListWidget, QListWidgetItem, QLabel, QProgressDialog, QMessageBox, QMenu, QSystemTrayIcon, QStyle, QDialog, QLineEdit, QTabWidget, QFileDialog, QHBoxLayout
@@ -244,14 +245,150 @@ class MainWindow(QMainWindow):
                 logging.info(f"Connecting VPN: {config_path}")
                 button.observer.set_state(ConnectionState.CONNECTING)
                 self.update_connections_menu()
-                # Add connection logic here...
+
+                # Get sudo password if needed
+                sudo_password = self.get_sudo_password()
+                if not sudo_password:
+                    button.observer.set_state(ConnectionState.DISCONNECTED)
+                    return
+
+                try:
+                    if connection_type == 'ipsec':
+                        self.connect_ipsec(config_path, username, password, extra_data, sudo_password)
+                    else:
+                        self.connect_openvpn(config_path, username, password, sudo_password)
+                    
+                    # Store active VPN connection
+                    self.active_vpns[config_path] = {
+                        'type': connection_type,
+                        'username': username,
+                        'process': None  # Will be set by connect methods
+                    }
+                    
+                    button.observer.set_state(ConnectionState.CONNECTED)
+                    
+                except Exception as e:
+                    logging.error(f"Failed to connect VPN: {e}")
+                    button.observer.set_state(ConnectionState.DISCONNECTED)
+                    QMessageBox.critical(self, "Error", f"Failed to connect VPN: {e}")
+                    
             else:
                 logging.info(f"Disconnecting VPN: {config_path}")
-                button.observer.set_state(ConnectionState.DISCONNECTED)
-                self.update_connections_menu()
-                # Add disconnection logic here...
+                button.observer.set_state(ConnectionState.DISCONNECTING)
+                
+                try:
+                    if connection_type == 'ipsec':
+                        self.disconnect_ipsec(config_path)
+                    else:
+                        self.disconnect_openvpn(config_path)
+                    
+                    if config_path in self.active_vpns:
+                        del self.active_vpns[config_path]
+                    
+                    button.observer.set_state(ConnectionState.DISCONNECTED)
+                    
+                except Exception as e:
+                    logging.error(f"Failed to disconnect VPN: {e}")
+                    QMessageBox.critical(self, "Error", f"Failed to disconnect VPN: {e}")
+                
+            self.update_connections_menu()
         except Exception as e:
-            logging.error(f"Error toggling VPN: {e}")
+            logging.error(f"Error in toggle_vpn: {e}")
+
+    def connect_openvpn(self, config_path, username, password, sudo_password):
+        try:
+            # Create a temporary file for credentials
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp:
+                temp.write(f"{username}\n{password}")
+                auth_file = temp.name
+
+            # Prepare OpenVPN command
+            cmd = [
+                'sudo', '-S',
+                'openvpn',
+                '--config', config_path,
+                '--auth-user-pass', auth_file,
+                '--daemon'
+            ]
+
+            # Start OpenVPN process
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+
+            # Send sudo password
+            process.stdin.write(f"{sudo_password}\n")
+            process.stdin.flush()
+
+            # Store process reference
+            if config_path in self.active_vpns:
+                self.active_vpns[config_path]['process'] = process
+
+            # Clean up credentials file
+            os.unlink(auth_file)
+
+            logging.info(f"OpenVPN connection started for {config_path}")
+            return True
+
+        except Exception as e:
+            logging.error(f"Error connecting OpenVPN: {e}")
+            raise
+
+    def disconnect_openvpn(self, config_path):
+        try:
+            # First try to terminate the stored process
+            if config_path in self.active_vpns:
+                process = self.active_vpns[config_path].get('process')
+                if process:
+                    logging.info(f"Terminating OpenVPN process for {config_path}")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        logging.warning("Had to force kill OpenVPN process")
+
+            # Kill any remaining OpenVPN processes using sudo
+            logging.info("Killing any remaining OpenVPN processes")
+            try:
+                # Get sudo password
+                sudo_password = self.get_sudo_password()
+                if not sudo_password:
+                    raise Exception("No sudo password provided")
+
+                kill_cmd = ['sudo', '-S', 'pkill', 'openvpn']
+                process = subprocess.Popen(
+                    kill_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                
+                # Send sudo password
+                process.stdin.write(f"{sudo_password}\n")
+                process.stdin.flush()
+                
+                # Wait for the command to complete
+                process.wait(timeout=5)
+                
+                logging.info(f"OpenVPN connection terminated for {config_path}")
+                return True
+
+            except subprocess.TimeoutExpired:
+                logging.error("Timeout while trying to kill OpenVPN processes")
+                raise
+            except Exception as e:
+                logging.error(f"Error killing OpenVPN processes: {e}")
+                raise
+
+        except Exception as e:
+            logging.error(f"Error disconnecting OpenVPN: {e}")
+            raise
 
     def open_configure_window(self):
         try:

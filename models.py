@@ -12,6 +12,8 @@ class ConnectionState(Enum):
     CONNECTING = "Conectando..."
     AUTHENTICATING = "Autenticando..."
     CONNECTED = "Desconectar"
+    DISCONNECTING = "Desconectando..."
+    ERROR = "Error"
 
 class ConnectionObserver:
     def __init__(self, button, tray_icon):
