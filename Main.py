@@ -87,13 +87,6 @@ class MainWindow(QMainWindow):
             # Configure button
             self.configure_button = QPushButton("Configurar")
             self.configure_button.clicked.connect(self.open_configure_window)
-            
-            # Configure button
-            self.activate_button = QPushButton("Activar Licencia")
-
-            # Botón para solicitar licencia por email
-            self.request_license_button = QPushButton("Solicitar licencia por email")
-            self.request_license_button.clicked.connect(self.show_request_license_dialog)
 
             # List widget setup
             self.list_widget = QListWidget()
@@ -104,8 +97,6 @@ class MainWindow(QMainWindow):
             layout = QVBoxLayout()
             layout.addWidget(self.configure_button)
             layout.addWidget(self.list_widget)
-            layout.addWidget(self.activate_button)
-            layout.addWidget(self.request_license_button)
 
             central_widget = QWidget()
             central_widget.setLayout(layout)
@@ -462,47 +453,41 @@ class MainWindow(QMainWindow):
                 auth_file = temp.name
             logging.info(f"Archivo temporal de credenciales creado: {auth_file}")
 
-            # Detectar sistema operativo
-            system = platform.system().lower()
             openvpn_bin = self.get_executable_path('openvpn', 'openvpn')
-            cmd = []
-            if use_sudo:
-                cmd += ['sudo', '-S']
-            cmd += [
+            cmd = [
                 openvpn_bin,
                 '--script-security', '2',
                 '--config', config_path,
                 '--auth-user-pass', auth_file,
                 '--auth-nocache'
             ]
-            # Nunca añadir --daemon para capturar toda la salida
-            logging.info(f"Comando a ejecutar: {' '.join(cmd)}")
+            logging.info(f"Comando a ejecutar (sin sudo): {' '.join(cmd)}")
 
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE if use_sudo else None,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True
-            )
-
-            if use_sudo and sudo_password:
-                logging.info("Enviando clave sudo al proceso OpenVPN...")
-                process.stdin.write(f"{sudo_password}\n")
-                process.stdin.flush()
-
-            # Esperar a que aparezca "Initialization Sequence Completed" en la salida
-            connected = False
-            log_lines = []
-            while True:
-                line = process.stdout.readline()
-                if not line:
-                    break
-                logging.info(f"[OpenVPN] {line.strip()}")
-                log_lines.append(line.strip())
-                if "Initialization Sequence Completed" in line:
-                    connected = True
-                    break
+            if use_sudo:
+                if not sudo_password:
+                    sudo_password = self.get_sudo_password()
+                ret, out, err = self.run_sudo_command(cmd, sudo_password)
+                log_lines = out.splitlines() + err.splitlines()
+                connected = any("Initialization Sequence Completed" in l for l in log_lines)
+            else:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                )
+                log_lines = []
+                connected = False
+                while True:
+                    line = process.stdout.readline()
+                    if not line:
+                        break
+                    logging.info(f"[OpenVPN] {line.strip()}")
+                    log_lines.append(line.strip())
+                    if "Initialization Sequence Completed" in line:
+                        connected = True
+                        break
+                process.wait()
             os.unlink(auth_file)
             logging.info(f"Archivo temporal de credenciales eliminado: {auth_file}")
 
@@ -1306,24 +1291,12 @@ class EditDialog(QDialog):
     def get_password(self):
         return self.password_input.text().strip()
 
-    def show_request_license_dialog(self):
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
-        class RequestLicenseDialog(QDialog):
-            def __init__(self, parent=None):
-                super().__init__(parent)
-                self.setWindowTitle("Solicitar licencia")
-                layout = QVBoxLayout()
-                layout.addWidget(QLabel("Introduce tu email para recibir la licencia:"))
-                self.email_input = QLineEdit()
-                layout.addWidget(self.email_input)
-                self.send_button = QPushButton("Solicitar")
-                self.send_button.clicked.connect(self.accept)
-                layout.addWidget(self.send_button)
-                self.setLayout(layout)
-            def get_email(self):
-                return self.email_input.text().strip()
-        dialog = RequestLicenseDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            email = dialog.get_email()
-            # Aquí puedes implementar el envío real por email o solo mostrar mensaje
-            QMessageBox.information(self, "Solicitud enviada", f"Se ha recibido la solicitud de licencia para: {email}\nEn breve recibirás instrucciones en tu correo.")
+
+if __name__ == "__main__":
+    try:
+        app = QApplication(sys.argv)
+        window = MainWindow()
+        window.show()
+        sys.exit(app.exec_())
+    except Exception as e:
+        logging.critical(f"Critical error in main: {e}")
