@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton,
     QListWidget, QListWidgetItem, QLabel, QProgressDialog, QMessageBox, QMenu, QSystemTrayIcon, QStyle, QDialog, QLineEdit, QTabWidget, QFileDialog, QHBoxLayout
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon, QCursor
 import platform
 import os
@@ -22,10 +22,22 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+class VPNConnectThread(QThread):
+    result = pyqtSignal(bool, str)
+    def __init__(self, connect_func):
+        super().__init__()
+        self.connect_func = connect_func
+    def run(self):
+        try:
+            ok = self.connect_func()
+            self.result.emit(ok, "" if ok else "Error de conexión")
+        except Exception as e:
+            self.result.emit(False, str(e))
+
 class SudoPasswordDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Contraseña de administrador requerida")
+        self.setWindowTitle("Contraseña de administrador requerida (sudo)")
         self.setModal(True)
         layout = QVBoxLayout()
         label = QLabel("Introduce la contraseña de administrador (sudo):")
@@ -42,16 +54,32 @@ class SudoPasswordDialog(QDialog):
         button_box.addWidget(cancel_button)
         layout.addLayout(button_box)
         self.setLayout(layout)
-
     def get_password(self):
         return self.password_input.text()
+
+class FileDialogThread(QThread):
+    file_selected = pyqtSignal(str)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+    def run(self):
+        from PyQt5.QtWidgets import QFileDialog
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.parent,
+            "Seleccionar archivo .ovpn",
+            str(Path.home()),
+            "Archivos OVPN (*.ovpn);;Todos los archivos (*)",
+            options=options
+        )
+        if file_path:
+            self.file_selected.emit(file_path)
 
 class MainWindow(QMainWindow):
     def __init__(self):
         try:
             super().__init__()
-            self.sudo_password = None
-            self.ask_sudo_password()
             self.setWindowTitle("VPN Manager")
             self.setGeometry(100, 100, 500, 400)
 
@@ -71,11 +99,11 @@ class MainWindow(QMainWindow):
             # Add connections submenu
             self.connections_menu = self.tray_menu.addMenu("Conexiones")
 
-            # Add autostart option (OCULTO)
-            # self.autostart_action = self.tray_menu.addAction("Iniciar con el sistema")
-            # self.autostart_action.setCheckable(True)
-            # self.autostart_action.setChecked(self.is_autostart_enabled())
-            # self.autostart_action.triggered.connect(self.toggle_autostart)
+            # Add autostart option
+            self.autostart_action = self.tray_menu.addAction("Iniciar con el sistema")
+            self.autostart_action.setCheckable(True)
+            self.autostart_action.setChecked(self.is_autostart_enabled())
+            self.autostart_action.triggered.connect(self.toggle_autostart)
 
             # Add separator
             self.tray_menu.addSeparator()
@@ -110,15 +138,11 @@ class MainWindow(QMainWindow):
 
             # Check for updates
             self.check_for_updates()
+
+            # Ask for sudo password at startup
+            self.sudo_password = self.ask_sudo_password()
         except Exception as e:
             logging.error(f"Error initializing MainWindow: {e}")
-
-    def ask_sudo_password(self):
-        dialog = SudoPasswordDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.sudo_password = dialog.get_password()
-        else:
-            sys.exit(0)
 
     def is_package_installed_by_manager(self, package, system):
         """Comprueba si el paquete está instalado por brew o apt según el sistema operativo"""
@@ -171,14 +195,7 @@ class MainWindow(QMainWindow):
                         progress_dialog.setLabelText(f"Instalando {lib}...")
                         QApplication.processEvents()
                         if system == "linux":
-                            # Solo usar sudo si no es root
-                            is_root = False
-                            try:
-                                is_root = (os.geteuid() == 0)
-                            except AttributeError:
-                                pass  # os.geteuid no existe en Windows
-                            sudo_prefix = "" if is_root else "sudo "
-                            self.install_library(f"{sudo_prefix}apt-get update && {sudo_prefix}apt-get install -y {lib}")
+                            self.install_library(f"sudo apt-get update && sudo apt-get install -y {lib}")
                         elif system == "darwin":
                             self.install_library(f"brew install {lib}")
                         else:
@@ -200,78 +217,24 @@ class MainWindow(QMainWindow):
             )
 
     def is_library_installed_crossplatform(self, executables):
-        """Busca ejecutables en el PATH del usuario, root y rutas estándar del sistema. Guarda la ruta encontrada para cada ejecutable por separado."""
-        rutas_estandar = [
-            '/usr/sbin', '/usr/local/sbin', '/sbin', '/usr/bin', '/usr/local/bin', '/bin'
-        ]
-        if not hasattr(self, 'executables_paths'):
-            self.executables_paths = {}
+        """Comprueba si alguno de los ejecutables existe en el sistema (Linux/macOS)"""
         try:
             for exe in executables:
-                logging.info(f"Buscando '{exe}' en el PATH del usuario actual usando grep...")
-                user_path = os.environ.get('PATH', '')
-                for path_dir in user_path.split(":"):
-                    if os.path.isdir(path_dir):
-                        files = os.listdir(path_dir)
-                        matches = [f for f in files if exe == f]
-                        if matches:
-                            ruta = os.path.join(path_dir, matches[0])
-                            logging.info(f"Librería encontrada para usuario: {exe} en {ruta}")
-                            self.executables_paths[exe] = ruta
-                            return True
-                logging.info(f"No encontrado para usuario. Buscando '{exe}' con sudo (root) usando grep...")
-                grep_cmd = f"sudo sh -c 'echo $PATH'"
-                result = subprocess.run(grep_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True)
-                root_path = result.stdout.strip()
-                for path_dir in root_path.split(":"):
-                    if os.path.isdir(path_dir):
-                        files = os.listdir(path_dir)
-                        matches = [f for f in files if exe == f]
-                        if matches:
-                            ruta = os.path.join(path_dir, matches[0])
-                            logging.info(f"Librería encontrada para root: {exe} en {ruta}")
-                            self.executables_paths[exe] = ruta
-                            return True
-                # Buscar en rutas estándar
-                logging.info(f"Buscando '{exe}' en rutas estándar del sistema...")
-                for path_dir in rutas_estandar:
-                    ruta = os.path.join(path_dir, exe)
-                    if os.path.isfile(ruta) and os.access(ruta, os.X_OK):
-                        logging.info(f"Librería encontrada en ruta estándar: {ruta}")
-                        self.executables_paths[exe] = ruta
-                        return True
+                # Buscar en el PATH
+                if subprocess.call(["which", exe], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
+                    logging.info(f"Librería encontrada: {exe}")
+                    return True
             logging.warning(f"Librería no encontrada: {executables}")
             return False
         except Exception as e:
             logging.error(f"Error checking executables: {e}")
             return False
 
-    def get_executable_path(self, exe_name, default='openvpn'):
-        """Devuelve la ruta encontrada para el ejecutable, o el nombre por defecto si no se encontró."""
-        if hasattr(self, 'executables_paths') and exe_name in self.executables_paths:
-            return self.executables_paths[exe_name]
-        return default
-
     def install_library(self, install_cmd):
-        """Instala una librería usando sudo y nunca pide clave por consola."""
+        """Install a library using the provided command"""
         try:
-            # Si el comando es para apt-get, usar run_sudo_command
-            if install_cmd.startswith('sudo apt-get'):
-                cmd = install_cmd.replace('sudo ', '').split()
-                ret, out, err = self.run_sudo_command(cmd, self.get_sudo_password())
-                if ret == 0:
-                    logging.info(f"Librería instalada correctamente con el comando: {install_cmd}")
-                else:
-                    logging.error(f"Error al instalar la librería: {err}")
-                    QMessageBox.critical(
-                        self,
-                        "Error",
-                        f"No se pudo instalar la librería necesaria.\nComando: {install_cmd}\nError: {err}"
-                    )
-            else:
-                # Para brew o comandos sin sudo
-                subprocess.run(install_cmd.split(), check=True)
-                logging.info(f"Librería instalada correctamente con el comando: {install_cmd}")
+            subprocess.run(install_cmd.split(), check=True)
+            logging.info(f"Librería instalada correctamente con el comando: {install_cmd}")
         except subprocess.CalledProcessError as e:
             logging.error(f"Error al instalar la librería: {e}")
             QMessageBox.critical(
@@ -352,159 +315,109 @@ class MainWindow(QMainWindow):
             return password  # If password is too short, return as is
         return password[:4] + '*' * (len(password) - 8) + password[-4:]
 
-    def needs_sudo(self):
-        """Devuelve True si el sistema requiere sudo para ejecutar comandos privilegiados"""
-        system = platform.system().lower()
-        if system == "linux":
-            try:
-                return os.geteuid() != 0
-            except AttributeError:
-                return True  # Si no se puede determinar, asumir que sí
-        elif system == "darwin":
-            # En macOS, normalmente se requiere sudo para openvpn/ipsec
-            try:
-                return os.geteuid() != 0
-            except AttributeError:
-                return True
-        return False
-
     def toggle_vpn(self, button, config_path, username, password, connection_type=VPNType.OPENVPN.value, extra_data=None):
-        try:
-            if button.text() == ConnectionState.DISCONNECTED.value:
-                logging.info(f"Connecting VPN: {config_path}")
-                button.observer.set_state(ConnectionState.CONNECTING)
-                self.update_connections_menu()
-
-                sudo_password = None
-                use_sudo = self.needs_sudo()
-                if use_sudo:
-                    sudo_password = self.get_sudo_password()
-                    if not sudo_password:
-                        button.observer.set_state(ConnectionState.DISCONNECTED)
-                        self.update_connections_menu()
-                        self.set_tray_icon_disconnected()
-                        return
-
-                try:
-                    if connection_type == 'ipsec':
-                        self.connect_ipsec(config_path, username, password, extra_data, sudo_password, use_sudo)
-                        button.observer.set_state(ConnectionState.CONNECTED)
-                    else:
-                        result = self.connect_openvpn(config_path, username, password, sudo_password, use_sudo)
-                        if result:
-                            button.observer.set_state(ConnectionState.CONNECTED)
-                            QMessageBox.information(self, "VPN conectada", "¡La conexión VPN se ha establecido correctamente!")
-                        else:
-                            button.observer.set_state(ConnectionState.DISCONNECTED)
-                            self.set_tray_icon_disconnected()
-                            self.update_connections_menu()
-                            QMessageBox.critical(self, "Error", "No se pudo establecer la conexión VPN.")
-                            return
-                    self.active_vpns[config_path] = {
-                        'type': connection_type,
-                        'username': username,
-                        'process': None
-                    }
-                except Exception as e:
-                    logging.error(f"Failed to connect VPN: {e}")
-                    button.observer.set_state(ConnectionState.DISCONNECTED)
-                    self.set_tray_icon_disconnected()
-                    self.update_connections_menu()
-                    QMessageBox.critical(self, "Error", f"Failed to connect VPN: {e}")
-                    return
-            else:
-                logging.info(f"Disconnecting VPN: {config_path}")
-                button.observer.set_state(ConnectionState.DISCONNECTING)
-                try:
-                    if connection_type == 'ipsec':
-                        self.disconnect_ipsec(config_path)
-                    else:
-                        self.disconnect_openvpn(config_path)
-                    if config_path in self.active_vpns:
-                        del self.active_vpns[config_path]
-                    button.observer.set_state(ConnectionState.DISCONNECTED)
-                except Exception as e:
-                    logging.error(f"Failed to disconnect VPN: {e}")
-                    button.observer.set_state(ConnectionState.DISCONNECTED)
-                    self.set_tray_icon_disconnected()
-                    self.update_connections_menu()
-                    QMessageBox.critical(self, "Error", f"Failed to disconnect VPN: {e}")
-            self.update_connections_menu()
-        except Exception as e:
-            logging.error(f"Error in toggle_vpn: {e}")
-            self.set_tray_icon_disconnected()
-            self.update_connections_menu()
-
-    def set_tray_icon_disconnected(self):
-        """Fuerza el icono y tooltip de la bandeja a estado desconectado."""
-        if platform.system() == 'Darwin':
-            disconnected_icon = self.style().standardIcon(QStyle.SP_DialogCancelButton)
+        logging.info(f"[toggle_vpn] Botón pulsado. Estado actual: {button.text()}, config_path: {config_path}, username: {username}, tipo: {connection_type}, extra_data: {extra_data}")
+        if button.text() == ConnectionState.DISCONNECTED.value:
+            button.observer.set_state(ConnectionState.CONNECTING)
+            logging.info(f"[toggle_vpn] Estado cambiado a CONNECTING")
+            def connect_func():
+                logging.info(f"[toggle_vpn] Iniciando connect_func para tipo: {connection_type}")
+                if connection_type == 'ipsec':
+                    logging.info(f"[toggle_vpn] Llamando a connect_ipsec")
+                    self.connect_ipsec(config_path, username, password, extra_data)
+                    return True
+                else:
+                    logging.info(f"[toggle_vpn] Llamando a connect_openvpn")
+                    return self.connect_openvpn(config_path, username, password, self.sudo_password)
+            self.vpn_thread = VPNConnectThread(connect_func)
+            self.vpn_thread.result.connect(lambda ok, msg: self._on_vpn_connect_result(button, config_path, username, connection_type, ok, msg))
+            logging.info(f"[toggle_vpn] Lanzando hilo VPNConnectThread")
+            self.vpn_thread.start()
         else:
-            disconnected_icon = QIcon.fromTheme("network-offline")
-        self.tray_icon.setIcon(disconnected_icon)
-        self.tray_icon.setToolTip("VPN Desconectada")
+            button.observer.set_state(ConnectionState.DISCONNECTING)
+            logging.info(f"[toggle_vpn] Estado cambiado a DISCONNECTING. Llamando a disconnect_openvpn")
+            self.disconnect_openvpn(config_path)
+            button.observer.set_state(ConnectionState.DISCONNECTED)
+            self.update_connections_menu()
+            logging.info(f"[toggle_vpn] Estado cambiado a DISCONNECTED y menú actualizado")
 
-    def connect_openvpn(self, config_path, username, password, sudo_password=None, use_sudo=True):
+    def _on_vpn_connect_result(self, button, config_path, username, connection_type, ok, msg):
+        logging.info(f"[_on_vpn_connect_result] Resultado: ok={ok}, msg={msg}")
+        if ok:
+            button.observer.set_state(ConnectionState.CONNECTED)
+            self.active_vpns[config_path] = {
+                'type': connection_type,
+                'username': username,
+                'process': None
+            }
+            QMessageBox.information(self, "VPN conectada", "¡La conexión VPN se ha establecido correctamente!")
+        else:
+            button.observer.set_state(ConnectionState.DISCONNECTED)
+            QMessageBox.critical(self, "Error", f"No se pudo establecer la conexión VPN.\n{msg}")
+        self.update_connections_menu()
+        logging.info(f"[_on_vpn_connect_result] Estado final del botón: {button.text()}")
+
+    def connect_openvpn(self, config_path, username, password, sudo_password):
         try:
-            logging.info(f"Iniciando conexión OpenVPN para {config_path} con usuario {username}")
-            # Crear archivo temporal de credenciales
+            logging.info(f"[connect_openvpn] Iniciando conexión para {config_path} con usuario {username}")
+            # Create a temporary file for credentials
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp:
                 temp.write(f"{username}\n{password}")
                 auth_file = temp.name
-            logging.info(f"Archivo temporal de credenciales creado: {auth_file}")
 
-            openvpn_bin = self.get_executable_path('openvpn', 'openvpn')
+            # Prepare OpenVPN command
             cmd = [
-                openvpn_bin,
+                'sudo', '-S',
+                'openvpn',
                 '--script-security', '2',
                 '--config', config_path,
                 '--auth-user-pass', auth_file,
-                '--auth-nocache'
+                '--auth-nocache',
+                '--log', 'openvpn_runtime.log'
             ]
-            logging.info(f"Comando a ejecutar (sin sudo): {' '.join(cmd)}")
 
-            if use_sudo:
-                if not sudo_password:
-                    sudo_password = self.get_sudo_password()
-                ret, out, err = self.run_sudo_command(cmd, sudo_password)
-                log_lines = out.splitlines() + err.splitlines()
-                connected = any("Initialization Sequence Completed" in l for l in log_lines)
-            else:
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    universal_newlines=True
-                )
-                log_lines = []
-                connected = False
-                while True:
-                    line = process.stdout.readline()
-                    if not line:
-                        break
-                    logging.info(f"[OpenVPN] {line.strip()}")
-                    log_lines.append(line.strip())
-                    if "Initialization Sequence Completed" in line:
-                        connected = True
-                        break
-                process.wait()
+            logging.info(f"[connect_openvpn] Ejecutando comando: {' '.join(cmd)}")
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True
+            )
+            process.stdin.write(f"{sudo_password}\n")
+            process.stdin.flush()
+
+            # Esperar a que aparezca la secuencia en el log y actualizar la UI en tiempo real
+            import time
+            connected = False
+            log_path = 'openvpn_runtime.log'
+            last_size = 0
+            for _ in range(60):  # Espera hasta 60 segundos
+                if os.path.exists(log_path):
+                    # Leer el log usando sudo para evitar problemas de permisos
+                    cat_cmd = ['sudo', '-S', 'cat', log_path]
+                    cat_proc = subprocess.Popen(cat_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                    cat_proc.stdin.write(f"{sudo_password}\n")
+                    cat_proc.stdin.flush()
+                    log_content, _ = cat_proc.communicate(timeout=5)
+                    for line in log_content.splitlines():
+                        logging.info(f"[openvpn-log] {line.strip()}")
+                        if "Initialization Sequence Completed" in line:
+                            connected = True
+                            break
+                if connected:
+                    break
+                time.sleep(1)
             os.unlink(auth_file)
-            logging.info(f"Archivo temporal de credenciales eliminado: {auth_file}")
-
-            if connected:
-                logging.info(f"OpenVPN connection established for {config_path}")
-                return True
-            else:
-                logging.error(f"OpenVPN connection failed for {config_path}")
-                logging.error(f"Salida completa de OpenVPN:\n" + '\n'.join(log_lines))
-                return False
+            logging.info(f"[connect_openvpn] Proceso terminado. Conectado: {connected}")
+            return connected
         except Exception as e:
             logging.error(f"Error connecting OpenVPN: {e}")
             raise
 
     def disconnect_openvpn(self, config_path):
         try:
-            # Intentar terminar el proceso almacenado
+            # First try to terminate the stored process
             if config_path in self.active_vpns:
                 process = self.active_vpns[config_path].get('process')
                 if process:
@@ -516,113 +429,43 @@ class MainWindow(QMainWindow):
                         process.kill()
                         logging.warning("Had to force kill OpenVPN process")
 
-            # En Linux, buscar el proceso exacto con los argumentos usados
-            system = platform.system().lower()
-            use_sudo = self.needs_sudo()
-            if system == 'linux':
-                import shlex
-                ps_cmd = f"ps aux | grep 'openvpn' | grep '{shlex.quote(config_path)}' | grep -v grep | awk '{{print $2}}'"
-                p = subprocess.Popen(ps_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-                pids, _ = p.communicate()
-                pids = [pid.strip() for pid in pids.splitlines() if pid.strip()]
-                for pid in pids:
-                    kill_cmd = ['kill', '-TERM', pid]
-                    if use_sudo:
-                        sudo_password = self.get_sudo_password()
-                        if not sudo_password:
-                            raise Exception("No sudo password provided")
-                        ret, out, err = self.run_sudo_command(['kill', '-TERM', pid], sudo_password)
-                        if ret != 0:
-                            logging.error(f"Error matando proceso OpenVPN: {err}")
-                    else:
-                        subprocess.run(kill_cmd, check=False)
-                logging.info(f"OpenVPN process(es) with config {config_path} terminated")
-            else:
-                logging.info("Killing any remaining OpenVPN processes")
-                if use_sudo:
-                    sudo_password = self.get_sudo_password()
-                    if not sudo_password:
-                        raise Exception("No sudo password provided")
-                    ret, out, err = self.run_sudo_command(['pkill', 'openvpn'], sudo_password)
-                    if ret != 0:
-                        logging.error(f"Error ejecutando pkill openvpn: {err}")
-                else:
-                    kill_cmd = ['pkill', 'openvpn']
-                    subprocess.run(kill_cmd, check=False)
+            # Kill any remaining OpenVPN processes using sudo
+            logging.info("Killing any remaining OpenVPN processes")
+            try:
+                # Get sudo password
+                sudo_password = self.get_sudo_password()
+                if not sudo_password:
+                    raise Exception("No sudo password provided")
+
+                kill_cmd = ['sudo', '-S', 'pkill', 'openvpn']
+                process = subprocess.Popen(
+                    kill_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                
+                # Send sudo password
+                process.stdin.write(f"{sudo_password}\n")
+                process.stdin.flush()
+                
+                # Wait for the command to complete
+                process.wait(timeout=5)
+                
                 logging.info(f"OpenVPN connection terminated for {config_path}")
-            return True
-        except subprocess.TimeoutExpired:
-            logging.error("Timeout while trying to kill OpenVPN processes")
-            raise
+                return True
+
+            except subprocess.TimeoutExpired:
+                logging.error("Timeout while trying to kill OpenVPN processes")
+                raise
+            except Exception as e:
+                logging.error(f"Error killing OpenVPN processes: {e}")
+                raise
+
         except Exception as e:
             logging.error(f"Error disconnecting OpenVPN: {e}")
             raise
-
-    def connect_ipsec(self, config_path, username, password, extra_data, sudo_password=None, use_sudo=True):
-        try:
-            logging.info(f"Iniciando conexión IPsec para {config_path} con usuario {username}")
-            cmd = ['ipsec', 'up', config_path]
-            if use_sudo:
-                if not sudo_password:
-                    sudo_password = self.get_sudo_password()
-                ret, out, err = self.run_sudo_command(cmd, sudo_password)
-                if ret != 0:
-                    logging.error(f"Error conectando IPsec: {err}")
-                    if 'incorrect password' in err.lower() or 'Sorry, try again.' in err or 'sudo:' in err:
-                        if self.retry_sudo_password():
-                            return self.connect_ipsec(config_path, username, password, extra_data, self.sudo_password, use_sudo)
-                    raise Exception(f"Error conectando IPsec: {err}")
-            else:
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-                out, err = process.communicate()
-                if process.returncode != 0:
-                    logging.error(f"Error conectando IPsec: {err}")
-                    raise Exception(f"Error conectando IPsec: {err}")
-            logging.info(f"IPsec connection started for {config_path}")
-            return True
-        except Exception as e:
-            logging.error(f"Error connecting IPsec: {e}")
-            raise
-
-    def disconnect_ipsec(self, config_path):
-        try:
-            logging.info(f"Disconnecting IPsec for {config_path}")
-            cmd = ['ipsec', 'down', config_path]
-            if self.needs_sudo():
-                sudo_password = self.get_sudo_password()
-                ret, out, err = self.run_sudo_command(cmd, sudo_password)
-                if ret != 0:
-                    logging.error(f"Error desconectando IPsec: {err}")
-                    if 'incorrect password' in err.lower() or 'Sorry, try again.' in err or 'sudo:' in err:
-                        if self.retry_sudo_password():
-                            return self.disconnect_ipsec(config_path)
-                    raise Exception(f"Error desconectando IPsec: {err}")
-            else:
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-                out, err = process.communicate()
-                if process.returncode != 0:
-                    logging.error(f"Error desconectando IPsec: {err}")
-                    raise Exception(f"Error desconectando IPsec: {err}")
-            logging.info(f"IPsec disconnected for {config_path}")
-        except subprocess.TimeoutExpired:
-            logging.error("Timeout while trying to disconnect IPsec")
-            raise
-        except Exception as e:
-            logging.error(f"Error disconnecting IPsec: {e}")
-            raise
-
-    def retry_sudo_password(self):
-        """Muestra un diálogo para reintentar la clave sudo si fue incorrecta. Devuelve True si el usuario reintentó y la guardó."""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Critical)
-        msg.setWindowTitle("Error de autenticación sudo")
-        msg.setText("La contraseña de administrador es incorrecta o fue rechazada. ¿Desea reintentarlo?")
-        msg.setStandardButtons(QMessageBox.Retry | QMessageBox.Cancel)
-        ret = msg.exec_()
-        if ret == QMessageBox.Retry:
-            self.ask_sudo_password()
-            return True if self.sudo_password else False
-        return False
 
     def open_configure_window(self):
         try:
@@ -642,7 +485,7 @@ class MainWindow(QMainWindow):
                         self.save_connections()
         except Exception as e:
             logging.error(f"Error opening configure window: {e}")
-
+    
     def save_connections(self):
         """Save both OpenVPN and IPsec connections to JSON"""
         try:
@@ -652,7 +495,7 @@ class MainWindow(QMainWindow):
                 widget = self.list_widget.itemWidget(item)
                 label = widget.findChild(QLabel)
                 connect_button = widget.findChild(QPushButton, "Conectar")
-
+                
                 # Get common properties
                 config_path = connect_button.property("config_path")
                 username = connect_button.property("username")
@@ -660,7 +503,7 @@ class MainWindow(QMainWindow):
                 connection_type = connect_button.property("connection_type")
                 extra_data = connect_button.property("extra_data")
                 sudo_password = connect_button.property("sudo_password")  # Añadir esto
-
+                
                 # Create connection dict based on type
                 if connection_type == 'ipsec':
                     connection = {
@@ -777,8 +620,43 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error updating item in list: {e}")
 
+    def ask_sudo_password(self):
+        dialog = SudoPasswordDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            return dialog.get_password()
+        else:
+            QMessageBox.critical(self, "Error", "Se requiere la contraseña de administrador para ejecutar la aplicación.")
+            sys.exit(1)
+
     def get_sudo_password(self):
-        return self.sudo_password
+        try:
+            # Crear un diálogo más informativo para la contraseña sudo
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Autenticación requerida")  # Título más descriptivo
+            layout = QVBoxLayout()
+            
+            # Mensaje más descriptivo e informativo
+            label = QLabel("Se necesita clave sudo para seguir")
+            label.setWordWrap(True)  # Permite que el texto se ajuste al ancho del diálogo
+            
+            password_input = QLineEdit()
+            password_input.setEchoMode(QLineEdit.Password)
+            password_input.setPlaceholderText("Introduzca su contraseña")  # Texto de ayuda
+            
+            button = QPushButton("Aceptar")
+            button.clicked.connect(dialog.accept)
+            
+            layout.addWidget(label)
+            layout.addWidget(password_input)
+            layout.addWidget(button)
+            
+            dialog.setLayout(layout)
+            
+            if dialog.exec_() == QDialog.Accepted:
+                return password_input.text()
+            return ""
+        except Exception as e:
+            logging.error(f"Error getting sudo password: {e}")
 
     def add_ipsec_connection(self, config):
         try:
@@ -824,7 +702,7 @@ class MainWindow(QMainWindow):
             ipsec_menu = self.connections_menu.addMenu("IPsec")
             ipsec_menu.setIcon(ipsec_icon)
             
-            active_connection = None;
+            active_connection = None
             
             # Update main tray icon for macOS
             if platform.system() == 'Darwin':
@@ -1017,25 +895,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error notifying update: {e}")
 
-    def run_sudo_command(self, cmd, sudo_password, **kwargs):
-        """Ejecuta un comando con sudo pasando la clave por stdin y nunca por consola. Usa flags para evitar prompt y caché."""
-        full_cmd = ['sudo', '-S', '-k', '-p', ''] + cmd if cmd[0] != 'sudo' else cmd
-        logging.info(f"Ejecutando comando sudo: {' '.join(full_cmd)}")
-        process = subprocess.Popen(
-            full_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
-            **kwargs
-        )
-        try:
-            out, err = process.communicate(sudo_password + '\n', timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            out, err = process.communicate()
-        return process.returncode, out, err
-
 class ConfigureDialog(QDialog):
     def __init__(self, parent=None):
         try:
@@ -1180,22 +1039,25 @@ class ConfigureDialog(QDialog):
 
     def open_file_explorer(self):
         try:
-            # Abrir el explorador de archivos para seleccionar un archivo .ovpn
-            options = QFileDialog.Options()
-            file_path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Seleccionar archivo .ovpn",
-                "",
-                "Archivos OVPN (*.ovpn);;Todos los archivos (*)",
-                options=options
-            )
-
-            # Mostrar la ruta del archivo seleccionado
-            if file_path:
-                self.selected_file = file_path
-                self.file_label.setText(f"Seleccionado: {file_path}")
+            import threading
+            def select_file():
+                from tkinter import Tk, filedialog
+                root = Tk()
+                root.withdraw()
+                file_path = filedialog.askopenfilename(
+                    title="Seleccionar archivo .ovpn",
+                    filetypes=[("Archivos OVPN", "*.ovpn"), ("Todos los archivos", "*.*")]
+                )
+                root.destroy()
+                if file_path:
+                    # Actualiza la UI de Qt en el hilo principal
+                    from PyQt5.QtCore import QMetaObject, Qt, Q_ARG
+                    QMetaObject.invokeMethod(self.file_label, "setText", Qt.QueuedConnection, Q_ARG(str, f"Seleccionado: {file_path}"))
+                    self.selected_file = file_path
+            threading.Thread(target=select_file).start()
         except Exception as e:
-            logging.error(f"Error opening file explorer: {e}")
+            logging.error(f"Error abriendo el selector de archivos con Tkinter: {e}")
+            QMessageBox.critical(self, "Error", f"Error abriendo el selector de archivos con Tkinter:\n{e}")
 
     def get_selected_file(self):
         return self.selected_file
@@ -1264,6 +1126,7 @@ class EditDialog(QDialog):
         try:
             # Abrir el explorador de archivos para seleccionar un archivo .ovpn
             options = QFileDialog.Options()
+            options |= QFileDialog.DontUseNativeDialog  # Fuerza el diálogo Qt puro para evitar bloqueos
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Seleccionar archivo .ovpn",
