@@ -1,7 +1,4 @@
 from enum import Enum
-from PyQt5.QtWidgets import QPushButton, QSystemTrayIcon, QStyle
-from PyQt5.QtGui import QIcon
-import platform
 
 class VPNType(Enum):
     OPENVPN = "OpenVPN"

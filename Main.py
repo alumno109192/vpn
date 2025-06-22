@@ -4,6 +4,7 @@ import json
 import logging
 import requests
 import tempfile
+import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget, QPushButton,
     QListWidget, QListWidgetItem, QLabel, QProgressDialog, QMessageBox, QMenu, QSystemTrayIcon, QStyle, QDialog, QLineEdit, QTabWidget, QFileDialog, QHBoxLayout
@@ -13,6 +14,8 @@ from PyQt5.QtGui import QIcon, QCursor
 import platform
 import os
 from pathlib import Path
+from license import LicenseManager
+from license_storage import LicenseStorage
 from models import VPNType, ConnectionState, ConnectionObserver  # Import models
 
 # Configure logging
@@ -100,10 +103,10 @@ class MainWindow(QMainWindow):
             self.connections_menu = self.tray_menu.addMenu("Conexiones")
 
             # Add autostart option
-            self.autostart_action = self.tray_menu.addAction("Iniciar con el sistema")
-            self.autostart_action.setCheckable(True)
-            self.autostart_action.setChecked(self.is_autostart_enabled())
-            self.autostart_action.triggered.connect(self.toggle_autostart)
+            #self.autostart_action = self.tray_menu.addAction("Iniciar con el sistema")
+            #self.autostart_action.setCheckable(True)
+            #self.autostart_action.setChecked(self.is_autostart_enabled())
+            #self.autostart_action.triggered.connect(self.toggle_autostart)
 
             # Add separator
             self.tray_menu.addSeparator()
@@ -123,8 +126,24 @@ class MainWindow(QMainWindow):
 
             # Main layout
             layout = QVBoxLayout()
-            layout.addWidget(self.configure_button)
+            # Añadir ambos botones en horizontal
+            button_row = QHBoxLayout()
+            button_row.addWidget(self.configure_button)
+            layout.addLayout(button_row)
             layout.addWidget(self.list_widget)
+
+            # Botón inferior para activar licencia
+            self.bottom_activate_button = QPushButton("Activar licencia")
+            self.bottom_activate_button.clicked.connect(self.ask_for_license)
+            layout.addWidget(self.bottom_activate_button)
+
+            # Label de periodo de prueba
+            self.trial_status_label = QLabel()
+            layout.addWidget(self.trial_status_label)
+
+            # Label de estado de licencia
+            self.license_status_label = QLabel()
+            layout.addWidget(self.license_status_label)
 
             central_widget = QWidget()
             central_widget.setLayout(layout)
@@ -141,6 +160,39 @@ class MainWindow(QMainWindow):
 
             # Ask for sudo password at startup
             self.sudo_password = self.ask_sudo_password()
+
+            # Verificar licencia al iniciar la aplicación
+            serial = LicenseStorage.get_serial()
+            email = LicenseStorage.get_email()
+            if serial and email and LicenseManager.validate_license_key(email, serial):
+                self.premium_enabled = True
+            else:
+                self.premium_enabled = False
+                if serial or email:
+                    QMessageBox.warning(self, "Licencia inválida", "El email y/o la clave de licencia guardados no son válidos. Por favor, revisa tus datos o activa una nueva licencia.")
+            self.update_license_status_label()
+            self.update_trial_status_label()
+
+            # Comprobar licencia y prueba
+            serial = LicenseStorage.get_serial()
+            if not serial:
+                if not LicenseStorage.get_trial_start():
+                    LicenseStorage.start_trial()
+                if LicenseStorage.is_trial_valid():
+                    self.license_status_label.setText(f"Modo prueba: {LicenseStorage.TRIAL_DAYS} días")
+                    self.premium_enabled = False
+                else:
+                    self.license_status_label.setText("Prueba finalizada. Activa la licencia.")
+                    self.premium_enabled = False
+                    # Aquí puedes desactivar funciones premium
+            else:
+                # Aquí validas el serial como antes
+                if LicenseManager.validate_license_key(self.license_email, serial):
+                    self.license_status_label.setText("Licencia: ACTIVADA ✅")
+                    self.premium_enabled = True
+                else:
+                    self.license_status_label.setText("Licencia inválida ❌")
+                    self.premium_enabled = False
         except Exception as e:
             logging.error(f"Error initializing MainWindow: {e}")
 
@@ -391,7 +443,6 @@ class MainWindow(QMainWindow):
             import time
             connected = False
             log_path = 'openvpn_runtime.log'
-            last_size = 0
             for _ in range(60):  # Espera hasta 60 segundos
                 if os.path.exists(log_path):
                     # Leer el log usando sudo para evitar problemas de permisos
@@ -894,6 +945,114 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             logging.error(f"Error notifying update: {e}")
+
+    def ask_for_license(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
+        class LicenseDialog(QDialog):
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.setWindowTitle("Activar licencia")
+                layout = QVBoxLayout()
+                layout.addWidget(QLabel("Para activar la licencia debes realizar el pago por PayPal a: yesod3d@gmail.com"))
+                layout.addWidget(QLabel("Introduce tu email de licencia:"))
+                self.email_input = QLineEdit()
+                layout.addWidget(self.email_input)
+                layout.addWidget(QLabel("Introduce tu clave de licencia:"))
+                self.license_input = QLineEdit()
+                layout.addWidget(self.license_input)
+                layout.addWidget(QLabel("La licencia tiene un coste de 5€ por 30 días de uso."))
+                self.ok_button = QPushButton("Activar")
+                self.ok_button.clicked.connect(self.accept)
+                layout.addWidget(self.ok_button)
+                self.setLayout(layout)
+            def get_data(self):
+                return self.email_input.text().strip(), self.license_input.text().strip()
+        dialog = LicenseDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            email, key = dialog.get_data()
+            if LicenseManager.validate_license_key(email, key):
+                LicenseStorage.activate_license(email=email, serial=key)
+                self.license_email, self.license_key = email, key
+                self.premium_enabled = True
+                self.update_license_status_label()
+                self.update_trial_status_label()
+                QMessageBox.information(self, "Licencia activada", "¡Licencia válida y email guardados correctamente!\nLa licencia es válida por 30 días.")
+            else:
+                self.premium_enabled = False
+                self.update_license_status_label()
+                self.update_trial_status_label()
+                QMessageBox.critical(self, "Licencia inválida", "El serial no corresponde con el email.")
+        else:
+            self.premium_enabled = False
+            self.update_license_status_label()
+            self.update_trial_status_label()
+
+    def update_connect_buttons_state(self):
+        # Deshabilita los botones de conectar si no hay licencia ni prueba activa
+        serial = LicenseStorage.get_serial()
+        email = LicenseStorage.get_email()
+        licencia_valida = serial and email and LicenseManager.validate_license_key(email, serial)
+        prueba_valida = LicenseStorage.is_trial_valid()
+        enable = licencia_valida or prueba_valida
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            widget = self.list_widget.itemWidget(item)
+            if widget:
+                connect_button = widget.findChild(QPushButton, "Conectar")
+                if connect_button:
+                    connect_button.setEnabled(enable)
+
+    def update_license_status_label(self):
+        serial = LicenseStorage.get_serial()
+        email = LicenseStorage.get_email()
+        if serial and email and LicenseManager.validate_license_key(email, serial):
+            if LicenseStorage.is_license_valid():
+                dias_restantes = LicenseStorage.LICENSE_DAYS - (datetime.datetime.now() - datetime.datetime.fromisoformat(LicenseStorage.get_license_start())).days
+                self.license_status_label.setText(f"Licencia: ACTIVADA ✅ ({dias_restantes} días restantes)")
+                self.license_status_label.setStyleSheet("color: green; font-weight: bold;")
+                self.trial_status_label.hide()
+            else:
+                self.license_status_label.setText("Licencia expirada. Renueva para seguir usando la app.")
+                self.license_status_label.setStyleSheet("color: orange; font-weight: bold;")
+                self.trial_status_label.show()
+        else:
+            self.license_status_label.setText("Licencia: NO ACTIVADA ❌")
+            self.license_status_label.setStyleSheet("color: red; font-weight: bold;")
+            self.trial_status_label.show()
+        self.update_connect_buttons_state()
+
+    def update_trial_status_label(self):
+        # Ocultar si la licencia está activada
+        serial = LicenseStorage.get_serial()
+        email = LicenseStorage.get_email()
+        if serial and email and LicenseManager.validate_license_key(email, serial):
+            self.trial_status_label.setText("")
+            self.trial_status_label.hide()
+            return
+        # Mostrar días restantes de prueba
+        trial_days = 7
+        data = LicenseStorage.load()
+        if data and data.get('trial_start'):
+            try:
+                start = datetime.datetime.fromisoformat(data['trial_start'])
+                now = datetime.datetime.now()
+                used = (now - start).days
+                left = max(0, trial_days - used)
+                if left > 0:
+                    self.trial_status_label.setText(f"Periodo de prueba: {left} días restantes")
+                    self.trial_status_label.setStyleSheet("color: orange; font-weight: bold;")
+                    self.trial_status_label.show()
+                else:
+                    self.trial_status_label.setText("Periodo de prueba finalizado")
+                    self.trial_status_label.setStyleSheet("color: red; font-weight: bold;")
+                    self.trial_status_label.show()
+            except Exception:
+                self.trial_status_label.setText("")
+                self.trial_status_label.show()
+        else:
+            self.trial_status_label.setText("")
+            self.trial_status_label.hide()
+        self.update_connect_buttons_state()
 
 class ConfigureDialog(QDialog):
     def __init__(self, parent=None):
