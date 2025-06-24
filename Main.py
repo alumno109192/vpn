@@ -460,8 +460,17 @@ class MainWindow(QMainWindow):
                     break
                 time.sleep(1)
             os.unlink(auth_file)
-            logging.info(f"[connect_openvpn] Proceso terminado. Conectado: {connected}")
-            return connected
+            if connected:
+                time.sleep(3)
+                if process.poll() is None:
+                    logging.info(f"[connect_openvpn] Conexión establecida correctamente para {config_path}")
+                    return True
+                else:
+                    logging.error(f"[connect_openvpn] Proceso OpenVPN finalizado inesperadamente para {config_path}")
+                    return False
+            else:
+                logging.error(f"[connect_openvpn] No se pudo establecer la conexión OpenVPN para {config_path}")
+                return False
         except Exception as e:
             logging.error(f"Error connecting OpenVPN: {e}")
             raise
