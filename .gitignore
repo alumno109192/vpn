@@ -1,0 +1,115 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Build outputs
+build/
+dist/
+release/
+deb_build/
+linux-native-build/
+windows-build-kit/
+
+# Logs
+*.log
+vpn_setup.log
+
+# Configuration files (sensitive)
+connections.json
+*.ovpn
+
+# Development files
+test_*.py
+simulate_*.py
+RESUMEN_FINAL.sh
+PROYECTO_COMPLETADO.md
+UPDATE_SYSTEM_SUMMARY.md
+GUIA_USUARIO_FINAL.md
+
+# Build scripts (keep only essential ones)
+build_*.sh
+build_*.bat
+build_*.py
+create_windows_executable.py
+package_all_final.sh
+Dockerfile.linux-build
+*.spec
+
+# Temporary files
+*.tmp
+*.temp
+license_generator.py
