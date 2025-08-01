@@ -1,0 +1,8 @@
+PyQt5==5.15.9
+PyInstaller==6.14.1
+pexpect
+requests
+cryptography
+packaging
+urllib3
+certifi
