@@ -22,16 +22,38 @@ from PyQt5.QtWidgets import QMessageBox, QProgressDialog
 # Importar configuración de versión
 from version import get_version, GITHUB_REPO, RELEASES_API_URL
 
-# Configurar logging para el updater
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('vpn_updater.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Configurar logging para el updater en directorio de usuario
+def setup_updater_logging():
+    """Configurar logging para el auto-updater en directorio de usuario"""
+    # Crear directorio de logs en home del usuario
+    log_dir = Path.home() / '.config' / 'vpn-manager' / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / 'vpn_updater.log'
+    
+    # Configurar logger
+    updater_logger = logging.getLogger(__name__)
+    updater_logger.setLevel(logging.INFO)
+    
+    # Evitar duplicar handlers
+    if not updater_logger.handlers:
+        # Handler para archivo
+        file_handler = logging.FileHandler(str(log_file))
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        ))
+        updater_logger.addHandler(file_handler)
+        
+        # Handler para consola
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter(
+            '%(name)s - %(levelname)s - %(message)s'
+        ))
+        updater_logger.addHandler(console_handler)
+    
+    return updater_logger
+
+# Configurar logging al cargar el módulo
+logger = setup_updater_logging()
 
 
 class UpdaterConfig:
