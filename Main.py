@@ -77,10 +77,16 @@ class MainWindow(QMainWindow):
             self.tray_icon = QSystemTrayIcon(lock_icon, self)
             self.tray_icon.setContextMenu(self.tray_menu)
             self.tray_icon.show()
+            
+            # Connect tray icon activation
+            if platform.system() == 'Darwin':
+                self.tray_icon.activated.connect(self.handle_tray_activation_macos)
+            else:
+                self.tray_icon.activated.connect(self.tray_icon_activated)
 
             # Add "Open" action
             open_action = self.tray_menu.addAction("Abrir")
-            open_action.triggered.connect(self.show)
+            open_action.triggered.connect(self.bring_to_foreground)
 
             # Add connections submenu
             self.connections_menu = self.tray_menu.addMenu("Conexiones")
@@ -150,15 +156,15 @@ class MainWindow(QMainWindow):
             # Dictionary for active VPNs
             self.active_vpns = {}
             
-            # Configurar servicios de auto-reconexión
-            from services.vpn_monitor_service import VPNMonitorService, AutoReconnectService
-            self.vpn_monitor = VPNMonitorService(self)
-            self.auto_reconnect_service = AutoReconnectService(self)
+            # Configurar servicios de auto-reconexión (comentado temporalmente)
+            # from services.vpn_monitor_service import VPNMonitorService, AutoReconnectService
+            # self.vpn_monitor = VPNMonitorService(self)
+            # self.auto_reconnect_service = AutoReconnectService(self)
             
             # Conectar señales
-            self.vpn_monitor.connection_lost.connect(self.auto_reconnect_service.handle_connection_lost)
-            self.vpn_monitor.start()
-            logging.info("[MainWindow] Servicios de monitoreo VPN iniciados")
+            # self.vpn_monitor.connection_lost.connect(self.auto_reconnect_service.handle_connection_lost)
+            # self.vpn_monitor.start()
+            # logging.info("[MainWindow] Servicios de monitoreo VPN iniciados")
 
             # Load connections after menu is initialized
             self.load_connections()
@@ -218,9 +224,76 @@ class MainWindow(QMainWindow):
             self.update_license_status_label()
             self.update_trial_status_label()
             self.update_connect_buttons_state()
+            
+            # Show startup message about license/trial status
+            self.show_trial_or_license_message()
 
         except Exception as e:
             logging.error(f"Error initializing license system: {e}")
+    
+    def show_trial_or_license_message(self):
+        """Show trial or license status message at startup"""
+        try:
+            serial = LicenseStorage.get_serial()
+            email = LicenseStorage.get_email()
+            
+            # Check for valid license
+            if serial and email and LicenseManager.validate_license_key(email, serial):
+                if LicenseStorage.is_license_valid():
+                    QMessageBox.information(
+                        self,
+                        "Licencia activa",
+                        f"Tu licencia está activa y válida.\nEmail: {email}"
+                    )
+                    return
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Licencia expirada",
+                        "Tu licencia ha expirado. Por favor, renueva para seguir usando la aplicación."
+                    )
+                    return
+            
+            # Check for special email access
+            if email == 'yesod3d@gmail.com' and not serial:
+                QMessageBox.information(
+                    self,
+                    "Acceso especial",
+                    "Tienes acceso especial a la aplicación sin limitaciones."
+                )
+                return
+            
+            # Check trial status
+            if LicenseStorage.is_trial_valid():
+                trial_days = LicenseStorage.TRIAL_DAYS
+                data = LicenseStorage.load()
+                if data and data.get('trial_start'):
+                    start_date = datetime.datetime.fromisoformat(data['trial_start'])
+                    days_elapsed = (datetime.datetime.now() - start_date).days
+                    days_remaining = max(0, trial_days - days_elapsed)
+                    
+                    QMessageBox.information(
+                        self,
+                        "Periodo de prueba activo",
+                        f"Periodo de prueba ({trial_days} días)\n"
+                        f"Días transcurridos: {days_elapsed}\n"
+                        f"Días restantes: {days_remaining}"
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Periodo de prueba iniciado",
+                        f"¡Bienvenido! Has iniciado tu periodo de prueba de {trial_days} días."
+                    )
+            else:
+                # Trial expired and no valid license
+                QMessageBox.warning(
+                    self,
+                    "Periodo de prueba expirado",
+                    "Tu período de prueba ha terminado. Por favor, activa una licencia para continuar usando la aplicación."
+                )
+        except Exception as e:
+            logging.error(f"Error showing trial/license message: {e}")
 
     def is_package_installed_by_manager(self, package, system):
         """Comprueba si el paquete está instalado por brew o apt según el sistema operativo"""
@@ -1001,14 +1074,14 @@ class MainWindow(QMainWindow):
     def tray_icon_activated(self, reason):
         """Handle tray icon activation"""
         if reason == QSystemTrayIcon.DoubleClick:
-            self.show()
+            self.bring_to_foreground()
 
     def handle_tray_activation_macos(self, reason):
         """Special handler for macOS tray icon clicks"""
         if reason == QSystemTrayIcon.Trigger:  # Single click in macOS
             self.tray_icon.contextMenu().popup(QCursor.pos())
         elif reason == QSystemTrayIcon.DoubleClick:
-            self.show()
+            self.bring_to_foreground()
 
     def toggle_vpn_from_menu(self, connection):
         """Handle VPN connection from tray menu"""
@@ -1087,9 +1160,9 @@ class MainWindow(QMainWindow):
     def toggle_auto_reconnect(self, checked):
         """Habilitar o deshabilitar la reconexión automática"""
         try:
-            # Usar el servicio de auto-reconexión
-            if hasattr(self, 'auto_reconnect_service'):
-                self.auto_reconnect_service.set_enabled(checked)
+            # Usar el servicio de auto-reconexión (comentado temporalmente)
+            # if hasattr(self, 'auto_reconnect_service'):
+            #     self.auto_reconnect_service.set_enabled(checked)
             
             status = "habilitada" if checked else "deshabilitada"
             logging.info(f"[AutoReconnect] Reconexión automática {status}")
@@ -1105,14 +1178,86 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error toggling auto-reconnect: {e}")
 
+    def bring_to_foreground(self):
+        """Bring the application window to the foreground and activate it"""
+        try:
+            # Show the window if it's hidden
+            self.show()
+            
+            # Restore window if it's minimized
+            if self.isMinimized():
+                self.showNormal()
+            
+            # Force window to be on top temporarily
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+            self.show()
+            
+            # Bring to front and activate
+            self.raise_()
+            self.activateWindow()
+            
+            # Additional methods to ensure the window is on top
+            self.setWindowState(self.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            
+            # Force focus
+            self.setFocus()
+            
+            # Remove the "always on top" flag after a short delay
+            QTimer.singleShot(100, self.remove_always_on_top)
+            
+            # Force additional attention getting methods
+            QTimer.singleShot(200, self.force_window_attention)
+            
+            # Try to grab attention in different ways
+            if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
+                self.tray_icon.showMessage(
+                    "Aplicación abierta",
+                    "La ventana principal se ha abierto",
+                    QSystemTrayIcon.Information,
+                    1000
+                )
+            
+            logging.info("Application brought to foreground")
+        except Exception as e:
+            logging.error(f"Error bringing application to foreground: {e}")
+
+    def remove_always_on_top(self):
+        """Remove the always on top flag"""
+        try:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+            self.show()
+        except Exception as e:
+            logging.error(f"Error removing always on top flag: {e}")
+
+    def force_window_attention(self):
+        """Force window to get user attention using multiple methods"""
+        try:
+            # Method 1: Flash the window in taskbar (if supported)
+            if hasattr(self, 'alert'):
+                self.alert(0)
+            
+            # Method 2: Move window slightly to trigger attention
+            current_pos = self.pos()
+            self.move(current_pos.x() + 1, current_pos.y() + 1)
+            QTimer.singleShot(50, lambda: self.move(current_pos))
+            
+            # Method 3: Resize slightly to trigger attention
+            current_size = self.size()
+            self.resize(current_size.width() + 1, current_size.height() + 1)
+            QTimer.singleShot(50, lambda: self.resize(current_size))
+            
+            logging.info("Forced window attention")
+        except Exception as e:
+            logging.error(f"Error forcing window attention: {e}")
+
     def closeEvent(self, event):
         """Handle window close event"""
         try:
-            # Detener el monitor de VPN antes de cerrar
-            if hasattr(self, 'vpn_monitor'):
-                self.vpn_monitor.stop_monitoring()
-                self.vpn_monitor.wait(3000)  # Esperar hasta 3 segundos
-                logging.info("[VPNMonitor] Monitor de conexiones detenido")
+            # Detener el monitor de VPN antes de cerrar (comentado temporalmente)
+            # if hasattr(self, 'vpn_monitor'):
+            #     self.vpn_monitor.stop_monitoring()
+            #     self.vpn_monitor.wait(3000)  # Esperar hasta 3 segundos
+            #     logging.info("[VPNMonitor] Monitor de conexiones detenido")
             
             if platform.system() == 'Darwin':
                 # En macOS, ocultar la ventana en lugar de cerrarla
@@ -1152,9 +1297,9 @@ class MainWindow(QMainWindow):
             app_info = get_app_info()
             about_text = f"""
 <h2>{app_info['name']}</h2>
-<p><b>Versión:</b> 1.2.1</p>
+<p><b>Versión:</b> {app_info['version']}</p>
 <p><b>Descripción:</b> {app_info['description']}</p>
-<p><b>Autor:</b> yesod3d</p>
+<p><b>Autor:</b> {app_info['author']}</p>
 <p><b>Email:</b> {app_info['email']}</p>
 <br>
 <p>Esta aplicación permite gestionar conexiones VPN de manera sencilla.</p>
@@ -1331,9 +1476,9 @@ if __name__ == "__main__":
         # Manejar el cierre de la aplicación correctamente
         def cleanup_on_exit():
             logging.info("Cerrando aplicación y limpiando recursos...")
-            if hasattr(app, 'main_window') and hasattr(app.main_window, 'vpn_monitor'):
-                app.main_window.vpn_monitor.stop_monitoring()
-                app.main_window.vpn_monitor.wait(3000)
+            # if hasattr(app, 'main_window') and hasattr(app.main_window, 'vpn_monitor'):
+            #     app.main_window.vpn_monitor.stop_monitoring()
+            #     app.main_window.vpn_monitor.wait(3000)
         
         app.aboutToQuit.connect(cleanup_on_exit)
         

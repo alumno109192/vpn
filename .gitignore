@@ -1,4 +1,17 @@
-# Ignorar carpetas de builds y artefactos
+ssh-add /media/jorge-kuik/KINGSTON/id_ed25519 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Permissions 0644 for '/media/jorge-kuik/KINGSTON/id_ed25519' are too open.
+It is required that your private key files are NOT accessible by others.
+This private key will be ignored.
+jorge-kuik@jorge-kuik-Lenovo-V15-G4-IRU:~/GIT/vpn/vpn2$ ssh-add /media/jorge-kuik/KINGSTON/id_ed25519.pub 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@         WARNING: UNPROTECTED PRIVATE KEY FILE!          @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Permissions 0644 for '/media/jorge-kuik/KINGSTON/id_ed25519.pub' are too open.
+It is required that your private key files are NOT accessible by others.
+This private key will be ignored.# Ignorar carpetas de builds y artefactos
 release/
 build/
 dist/
