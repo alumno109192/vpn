@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+# Script ejecutado después de instalar el paquete
+
+# Crear grupo vpn-manager si no existe
+if ! getent group vpn-manager > /dev/null 2>&1; then
+    groupadd vpn-manager
+fi
+
+# Hacer ejecutable el script principal
+chmod +x /usr/local/bin/vpn-manager/vpn-manager
+
+# Crear enlace simbólico en /usr/local/bin para acceso global
+if [ ! -L /usr/local/bin/vpn-manager-app ]; then
+    ln -s /usr/local/bin/vpn-manager/vpn-manager /usr/local/bin/vpn-manager-app
+fi
+
+# Actualizar base de datos de aplicaciones
+if command -v update-desktop-database > /dev/null 2>&1; then
+    update-desktop-database /usr/share/applications
+fi
+
+echo "VPN Manager se ha instalado correctamente."
+echo "Puede ejecutarlo desde el menú de aplicaciones o escribiendo 'vpn-manager-app' en terminal."

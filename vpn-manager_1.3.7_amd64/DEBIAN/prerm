@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+# Script ejecutado antes de eliminar el paquete
+
+# Eliminar enlace simbólico si existe
+if [ -L /usr/local/bin/vpn-manager-app ]; then
+    rm -f /usr/local/bin/vpn-manager-app
+fi
+
+# Actualizar base de datos de aplicaciones
+if command -v update-desktop-database > /dev/null 2>&1; then
+    update-desktop-database /usr/share/applications
+fi

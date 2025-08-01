@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VPN Manager
+Name[es]=Gestor de VPN
+Comment=Manage VPN connections easily
+Comment[es]=Gestiona conexiones VPN fácilmente
+Exec=/usr/local/bin/vpn-manager-app
+Icon=network-vpn
+Terminal=false
+Categories=Network;System;
+Keywords=VPN;OpenVPN;IPSec;StrongSwan;Network;Connection;
+StartupNotify=true
+MimeType=application/x-openvpn-profile;

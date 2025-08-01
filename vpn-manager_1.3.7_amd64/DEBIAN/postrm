@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+
+# Script ejecutado después de eliminar el paquete
+
+echo "VPN Manager ha sido desinstalado."

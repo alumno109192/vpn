@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""
+VPN Manager - Punto de entrada principal
+"""
+
+import sys
+import os
+
+# Añadir el directorio de la aplicación al path
+app_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, app_dir)
+
+if __name__ == "__main__":
+    try:
+        from Main import main
+        main()
+    except ImportError:
+        # Fallback para ejecutar directamente Main.py
+        import subprocess
+        main_script = os.path.join(app_dir, "Main.py")
+        subprocess.run([sys.executable, main_script] + sys.argv[1:])
