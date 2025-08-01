@@ -1,8 +1,0 @@
-Package: vpn-manager
-Version: 1.0.0
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: python3, python3-pyqt5, openvpn, strongswan
-Maintainer: VPN Manager Team <soporte@vpnmanager.com>
-Description: Gestor de conexiones VPN multiplataforma con interfaz gráfica.

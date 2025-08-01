@@ -1,0 +1,14 @@
+# Ignorar carpetas de builds y artefactos
+release/
+build/
+dist/
+deb_build/
+linux-native-build/
+windows-build-kit/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.egg-info/
+*.spec
