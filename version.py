@@ -4,17 +4,17 @@ Configuración de versión para VPN Manager
 """
 
 # Versión actual de la aplicación (formato semver)
-__version__ = "1.0.1"
+__version__ = "1.2.0"  # Actualizar para que 1.2.1 sea una versión superior
 __version_info__ = tuple(int(i) for i in __version__.split('.'))
 
 # Información de la aplicación
 APP_NAME = "VPN Manager"
 APP_DESCRIPTION = "Una aplicación multiplataforma para gestionar conexiones VPN"
-APP_AUTHOR = "Tu Nombre"
-APP_EMAIL = "yesod3d@gmail.com"
+APP_AUTHOR = "VPN Manager Team"
+APP_EMAIL = "contact@vpnmanager.example.com"
 
 # Configuración del repositorio
-GITHUB_REPO = "alumno109192/vpn"  # Tu repositorio real
+GITHUB_REPO = "alumno109192/vpn"  # Tu repositorio real de GitHub
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 
 # URLs de la API
