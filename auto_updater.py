@@ -334,12 +334,17 @@ class UpdateDownloadThread(QThread):
             return False
     
     def _create_backup(self) -> Path:
-        """Crea backup de archivos importantes"""
-        backup_dir = Path.cwd() / "backup_update" / f"backup_{self.release_data['tag_name']}"
+        """Crea backup de archivos importantes en directorio de usuario"""
+        # Usar directorio de configuración del usuario en lugar del directorio de instalación
+        config_dir = Path.home() / '.config' / 'vpn-manager'
+        backup_dir = config_dir / "backup_update" / f"backup_{self.release_data['tag_name']}"
         backup_dir.mkdir(parents=True, exist_ok=True)
         
+        # Directorio de instalación actual
+        install_dir = Path.cwd()
+        
         for preserve_file in UpdaterConfig.PRESERVE_FILES:
-            source = Path.cwd() / preserve_file
+            source = install_dir / preserve_file
             if source.exists():
                 if source.is_file():
                     shutil.copy2(source, backup_dir / preserve_file)
@@ -371,7 +376,25 @@ class UpdateDownloadThread(QThread):
             return False
 
     def _copy_update_files(self, source_dir: Path, current_dir: Path, backup_dir: Path) -> bool:
-        """Copia archivos de actualización de forma segura"""
+        """Copia archivos de actualización de forma segura con soporte para sudo"""
+        try:
+            # Verificar si tenemos permisos de escritura en el directorio de instalación
+            needs_sudo = not os.access(current_dir, os.W_OK)
+            
+            if needs_sudo:
+                logging.info("Directorio de instalación requiere permisos de administrador")
+                # Usar comando con sudo para copiar archivos
+                return self._copy_with_sudo(source_dir, current_dir, backup_dir)
+            else:
+                # Copia normal sin sudo
+                return self._copy_files_normal(source_dir, current_dir, backup_dir)
+                
+        except Exception as e:
+            logging.error(f"Error copying update files: {e}")
+            return False
+    
+    def _copy_files_normal(self, source_dir: Path, current_dir: Path, backup_dir: Path) -> bool:
+        """Copia archivos sin permisos especiales"""
         try:
             for item in source_dir.rglob('*'):
                 if item.is_file():
@@ -391,7 +414,53 @@ class UpdateDownloadThread(QThread):
             
             return True
         except Exception as e:
-            logging.error(f"Error copying update files: {e}")
+            logging.error(f"Error in normal file copy: {e}")
+            return False
+    
+    def _copy_with_sudo(self, source_dir: Path, current_dir: Path, backup_dir: Path) -> bool:
+        """Copia archivos usando sudo cuando es necesario"""
+        try:
+            # Crear un script temporal para la copia
+            temp_script = Path(tempfile.mktemp(suffix='.sh'))
+            
+            with open(temp_script, 'w') as f:
+                f.write("#!/bin/bash\n")
+                f.write("set -e\n")  # Exit on error
+                
+                for item in source_dir.rglob('*'):
+                    if item.is_file():
+                        relative_path = item.relative_to(source_dir)
+                        
+                        # Saltar archivos que deben preservarse
+                        if any(preserve in str(relative_path) for preserve in UpdaterConfig.PRESERVE_FILES):
+                            continue
+                        
+                        destination = current_dir / relative_path
+                        
+                        # Crear directorio padre
+                        f.write(f"mkdir -p '{destination.parent}'\n")
+                        # Copiar archivo
+                        f.write(f"cp '{item}' '{destination}'\n")
+            
+            # Hacer el script ejecutable
+            temp_script.chmod(0o755)
+            
+            # Ejecutar con sudo
+            result = subprocess.run(['sudo', 'bash', str(temp_script)], 
+                                  capture_output=True, text=True)
+            
+            # Limpiar script temporal
+            temp_script.unlink()
+            
+            if result.returncode == 0:
+                logging.info("Actualización instalada correctamente con sudo")
+                return True
+            else:
+                logging.error(f"Error ejecutando script sudo: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Error in sudo file copy: {e}")
             return False
 
     def _install_from_zip(self, zip_path: str, current_dir: Path, backup_dir: Path) -> bool:
