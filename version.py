@@ -14,7 +14,7 @@ APP_AUTHOR = "Tu Nombre"
 APP_EMAIL = "yesod3d@gmail.com"
 
 # Configuración del repositorio
-GITHUB_REPO = "alumno109192/vpn"
+GITHUB_REPO = "alumno109192/vpn"  # Tu repositorio real
 GITHUB_URL = f"https://github.com/{GITHUB_REPO}"
 
 # URLs de la API
