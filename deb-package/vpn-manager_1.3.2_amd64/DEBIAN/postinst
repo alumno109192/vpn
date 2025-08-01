@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+# Make the main executable script executable
+chmod +x /usr/local/bin/vpn-manager/vpn-manager
+
+# Create symbolic link in PATH
+if [ ! -L /usr/local/bin/vpn-manager-app ]; then
+    ln -sf /usr/local/bin/vpn-manager/vpn-manager /usr/local/bin/vpn-manager-app
+fi
+
+# Update desktop database
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications
+fi
+
+echo "VPN Manager installation completed successfully!"
+echo "You can run the application with: vpn-manager-app"
+echo "Or find it in your applications menu as 'VPN Manager'."
+
+exit 0

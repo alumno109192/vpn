@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+# Stop any running VPN connections
+if command -v pkill >/dev/null 2>&1; then
+    pkill -f "vpn-manager" || true
+    pkill -f "openvpn" || true
+fi
+
+# Remove symbolic link
+if [ -L /usr/local/bin/vpn-manager-app ]; then
+    rm -f /usr/local/bin/vpn-manager-app
+fi
+
+echo "VPN Manager pre-removal completed."
+
+exit 0

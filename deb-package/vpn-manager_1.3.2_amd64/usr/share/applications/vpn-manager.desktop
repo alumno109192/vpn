@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=VPN Manager
+Comment=Manage VPN connections with enhanced auto-update capabilities (v1.3.2)
+Exec=/usr/local/bin/vpn-manager/vpn-manager
+Icon=network-vpn
+Terminal=false
+Categories=Network;Security;
+Keywords=VPN;OpenVPN;Network;Security;Connection;Manager;
+StartupNotify=true
