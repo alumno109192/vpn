@@ -1,16 +1,16 @@
 Package: vpn-manager
-Version: 1.3.2
+Version: 1.3.3
 Section: net
 Priority: optional
 Architecture: amd64
 Depends: python3 (>= 3.8), python3-pyqt5, openvpn, python3-requests, python3-cryptography
 Maintainer: Jorge Felix <jorge.felix@kuik.tech>
-Description: VPN Manager Application v1.3.2
+Description: VPN Manager Application v1.3.3
  A comprehensive VPN management application with enhanced auto-update capabilities,
  license management, and user-friendly interface. Supports OpenVPN connections
  with advanced configuration options and automatic updates.
  .
- Features in v1.3.2:
+ Features in v1.3.3:
   - Enhanced auto-updater system with flexible asset detection
   - Support for multiple package formats (.deb, .tar.gz, .zip)
   - Improved error handling and user feedback

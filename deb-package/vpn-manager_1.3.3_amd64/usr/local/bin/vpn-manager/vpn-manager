@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VPN Manager v1.3.2 - Main executable script for .deb package
+VPN Manager v1.3.3 - Main executable script for .deb package
 Enhanced auto-updater with flexible asset detection and multi-format support
 """
 
@@ -22,5 +22,5 @@ except ImportError as e:
     print("sudo apt-get install python3-pyqt5 python3-requests python3-cryptography openvpn")
     sys.exit(1)
 except Exception as e:
-    print(f"Error running VPN Manager v1.3.2: {e}")
+    print(f"Error running VPN Manager v1.3.3: {e}")
     sys.exit(1)
