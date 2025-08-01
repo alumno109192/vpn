@@ -155,16 +155,6 @@ class MainWindow(QMainWindow):
 
             # Dictionary for active VPNs
             self.active_vpns = {}
-            
-            # Configurar servicios de auto-reconexión (comentado temporalmente)
-            # from services.vpn_monitor_service import VPNMonitorService, AutoReconnectService
-            # self.vpn_monitor = VPNMonitorService(self)
-            # self.auto_reconnect_service = AutoReconnectService(self)
-            
-            # Conectar señales
-            # self.vpn_monitor.connection_lost.connect(self.auto_reconnect_service.handle_connection_lost)
-            # self.vpn_monitor.start()
-            # logging.info("[MainWindow] Servicios de monitoreo VPN iniciados")
 
             # Load connections after menu is initialized
             self.load_connections()
@@ -1160,10 +1150,6 @@ class MainWindow(QMainWindow):
     def toggle_auto_reconnect(self, checked):
         """Habilitar o deshabilitar la reconexión automática"""
         try:
-            # Usar el servicio de auto-reconexión (comentado temporalmente)
-            # if hasattr(self, 'auto_reconnect_service'):
-            #     self.auto_reconnect_service.set_enabled(checked)
-            
             status = "habilitada" if checked else "deshabilitada"
             logging.info(f"[AutoReconnect] Reconexión automática {status}")
             
@@ -1253,12 +1239,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Handle window close event"""
         try:
-            # Detener el monitor de VPN antes de cerrar (comentado temporalmente)
-            # if hasattr(self, 'vpn_monitor'):
-            #     self.vpn_monitor.stop_monitoring()
-            #     self.vpn_monitor.wait(3000)  # Esperar hasta 3 segundos
-            #     logging.info("[VPNMonitor] Monitor de conexiones detenido")
-            
             if platform.system() == 'Darwin':
                 # En macOS, ocultar la ventana en lugar de cerrarla
                 self.hide()
@@ -1476,9 +1456,6 @@ if __name__ == "__main__":
         # Manejar el cierre de la aplicación correctamente
         def cleanup_on_exit():
             logging.info("Cerrando aplicación y limpiando recursos...")
-            # if hasattr(app, 'main_window') and hasattr(app.main_window, 'vpn_monitor'):
-            #     app.main_window.vpn_monitor.stop_monitoring()
-            #     app.main_window.vpn_monitor.wait(3000)
         
         app.aboutToQuit.connect(cleanup_on_exit)
         
