@@ -4,7 +4,7 @@ Configuración de versión para VPN Manager
 """
 
 # Versión actual de la aplicación (formato semver)
-__version__ = "1.0.1"
+__version__ = "1.3.0"
 __version_info__ = tuple(int(i) for i in __version__.split('.'))
 
 # Información de la aplicación

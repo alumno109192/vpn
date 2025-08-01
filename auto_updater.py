@@ -101,41 +101,6 @@ class UpdateCheckThread(QThread):
 
 
 class UpdateDownloadThread(QThread):
-    def _install_from_tar_gz(self, download_path: str, current_dir: Path, backup_dir: Path) -> bool:
-        """Instala desde archivo tar.gz"""
-        import tarfile
-        try:
-            with tarfile.open(download_path, 'r:gz') as tar:
-                # Extraer en directorio temporal
-                temp_extract_dir = Path(tempfile.mkdtemp(prefix="vpn_extract_"))
-                tar.extractall(temp_extract_dir)
-                # Buscar la carpeta principal
-                extracted_items = list(temp_extract_dir.iterdir())
-                if len(extracted_items) == 1 and extracted_items[0].is_dir():
-                    source_dir = extracted_items[0]
-                else:
-                    source_dir = temp_extract_dir
-                # Copiar archivos
-                return self._copy_update_files(source_dir, current_dir, backup_dir)
-        except Exception as e:
-            logging.error(f"Error installing from tar.gz: {e}")
-            return False
-
-    def _copy_update_files(self, source_dir: Path, current_dir: Path, backup_dir: Path) -> bool:
-        """Copia archivos de actualización de forma segura"""
-        try:
-            for item in source_dir.rglob('*'):
-                if item.is_file():
-                    relative_path = item.relative_to(source_dir)
-                    destination = current_dir / relative_path
-                    # Crear directorio padre si no existe
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    # Copiar archivo
-                    shutil.copy2(item, destination)
-            return True
-        except Exception as e:
-            logging.error(f"Error copying update files: {e}")
-            return False
     """Hilo para descargar e instalar actualizaciones"""
     progress_updated = pyqtSignal(int)  # Progreso de descarga (0-100)
     status_updated = pyqtSignal(str)   # Estado actual
@@ -238,7 +203,15 @@ class UpdateDownloadThread(QThread):
             return self._find_generic_asset(assets)
         
         # Búsqueda por prioridades
-        # 1. Buscar por patrones primarios
+        # 1. Buscar por patrones primarios + arquitectura
+        for asset in assets:
+            name = asset["name"].lower()
+            if any(pattern in name for pattern in patterns["primary"]) and arch in name:
+                if any(name.endswith(ext) for ext in patterns["extensions"]):
+                    logging.info(f"Asset encontrado (primario + arch): {asset['name']}")
+                    return asset["browser_download_url"]
+        
+        # 2. Buscar por patrones primarios sin arquitectura específica
         for asset in assets:
             name = asset["name"].lower()
             if any(pattern in name for pattern in patterns["primary"]):
@@ -246,7 +219,7 @@ class UpdateDownloadThread(QThread):
                     logging.info(f"Asset encontrado (primario): {asset['name']}")
                     return asset["browser_download_url"]
         
-        # 2. Buscar por patrones secundarios
+        # 3. Buscar por patrones secundarios
         for asset in assets:
             name = asset["name"].lower()
             if any(pattern in name for pattern in patterns["secondary"]):
@@ -254,14 +227,14 @@ class UpdateDownloadThread(QThread):
                     logging.info(f"Asset encontrado (secundario): {asset['name']}")
                     return asset["browser_download_url"]
         
-        # 3. Buscar por extensión compatible
+        # 4. Búsqueda fallback: cualquier archivo compatible
         for asset in assets:
             name = asset["name"].lower()
             if any(name.endswith(ext) for ext in patterns["extensions"]):
-                logging.info(f"Asset encontrado (por extensión): {asset['name']}")
+                logging.info(f"Asset encontrado (fallback): {asset['name']}")
                 return asset["browser_download_url"]
         
-        # 4. Último recurso: buscar genérico
+        # 5. Último recurso: buscar genérico
         return self._find_generic_asset(assets)
     
     def _find_generic_asset(self, assets) -> Optional[str]:
@@ -281,6 +254,58 @@ class UpdateDownloadThread(QThread):
             return assets[0]["browser_download_url"]
                 
         return None
+    
+    def _install_from_tar_gz(self, download_path: str, current_dir: Path, backup_dir: Path) -> bool:
+        """Instala desde archivo tar.gz"""
+        import tarfile
+        try:
+            with tarfile.open(download_path, 'r:gz') as tar:
+                # Extraer en directorio temporal
+                temp_extract_dir = Path(tempfile.mkdtemp(prefix="vpn_extract_"))
+                tar.extractall(temp_extract_dir)
+                
+                # Buscar la carpeta principal
+                extracted_items = list(temp_extract_dir.iterdir())
+                if len(extracted_items) == 1 and extracted_items[0].is_dir():
+                    source_dir = extracted_items[0]
+                else:
+                    source_dir = temp_extract_dir
+                
+                # Copiar archivos
+                return self._copy_update_files(source_dir, current_dir, backup_dir)
+        except Exception as e:
+            logging.error(f"Error installing from tar.gz: {e}")
+            return False
+
+    def _copy_update_files(self, source_dir: Path, current_dir: Path, backup_dir: Path) -> bool:
+        """Copia archivos de actualización de forma segura"""
+        try:
+            for item in source_dir.rglob('*'):
+                if item.is_file():
+                    relative_path = item.relative_to(source_dir)
+                    
+                    # Saltar archivos que deben preservarse
+                    if any(preserve in str(relative_path) for preserve in UpdaterConfig.PRESERVE_FILES):
+                        continue
+                    
+                    destination = current_dir / relative_path
+                    
+                    # Crear directorio padre si no existe
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Hacer backup del archivo original si existe
+                    if destination.exists():
+                        backup_dest = backup_dir / relative_path
+                        backup_dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(destination, backup_dest)
+                    
+                    # Copiar archivo nuevo
+                    shutil.copy2(item, destination)
+                    
+            return True
+        except Exception as e:
+            logging.error(f"Error copying update files: {e}")
+            return False
     
     def _download_file(self, url: str) -> Optional[str]:
         """Descarga un archivo con barra de progreso"""
