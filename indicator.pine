@@ -1,0 +1,140 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © alumno109192
+
+//@version=5
+indicator(title="VPN Signal Indicator", shorttitle="VPNSI", overlay=true, max_bars_back=500)
+
+// ─── INPUTS ───────────────────────────────────────────────────────────────────
+fastLen   = input.int(9,   title="Fast MA Length",   minval=1)
+slowLen   = input.int(21,  title="Slow MA Length",   minval=1)
+signalLen = input.int(9,   title="Signal Length",    minval=1)
+rsiLen    = input.int(14,  title="RSI Length",       minval=1)
+rsiOB     = input.float(70.0, title="RSI Overbought", minval=50.0, maxval=100.0)
+rsiOS     = input.float(30.0, title="RSI Oversold",   minval=0.0,  maxval=50.0)
+atrLen    = input.int(14,  title="ATR Length",       minval=1)
+atrMult   = input.float(1.5, title="ATR Multiplier", minval=0.1)
+bbLen     = input.int(20,  title="BB Length",        minval=1)
+bbMult    = input.float(2.0, title="BB Multiplier",  minval=0.1)
+macdFast  = input.int(12,  title="MACD Fast",        minval=1)
+macdSlow  = input.int(26,  title="MACD Slow",        minval=1)
+macdSig   = input.int(9,   title="MACD Signal",      minval=1)
+lookback  = input.int(133, title="Lookback Period",  minval=1, maxval=500)
+
+// ─── MOVING AVERAGES ──────────────────────────────────────────────────────────
+fastMA = ta.ema(close, fastLen)
+slowMA = ta.ema(close, slowLen)
+
+// ─── RSI ──────────────────────────────────────────────────────────────────────
+rsiVal = ta.rsi(close, rsiLen)
+
+// ─── ATR ──────────────────────────────────────────────────────────────────────
+atrVal = ta.atr(atrLen)
+
+// ─── BOLLINGER BANDS ──────────────────────────────────────────────────────────
+[bbUpper, bbMiddle, bbLower] = ta.bb(close, bbLen, bbMult)
+
+// ─── MACD ─────────────────────────────────────────────────────────────────────
+[macdLine, signalLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSig)
+
+// ─── HIGHEST / LOWEST (uses lookback — needs max_bars_back=500) ───────────────
+highestHigh = ta.highest(high,  lookback)
+lowestLow   = ta.lowest(low,   lookback)
+
+// ─── TREND DETECTION ──────────────────────────────────────────────────────────
+upTrend   = fastMA > slowMA
+downTrend = fastMA < slowMA
+
+// Price relative to Bollinger Bands
+aboveUpper = close > bbUpper
+belowLower = close < bbLower
+
+// MACD crossovers
+macdBull = ta.crossover(macdLine,  signalLine)
+macdBear = ta.crossunder(macdLine, signalLine)
+
+// ─── BUY / SELL CONDITIONS ────────────────────────────────────────────────────
+buySignal  = upTrend   and macdBull and rsiVal < rsiOB and close > bbMiddle
+sellSignal = downTrend and macdBear and rsiVal > rsiOS and close < bbMiddle
+
+// Breakout signals
+bullBreakout = close > highestHigh[1]
+bearBreakout = close < lowestLow[1]
+
+// Strong signals (require RSI confirmation)
+strongBuy  = buySignal  and rsiVal < rsiOS + 20
+strongSell = sellSignal and rsiVal > rsiOB - 20
+
+// ─── PLOTS ────────────────────────────────────────────────────────────────────
+plot(fastMA,   title="Fast EMA",   color=color.new(color.blue,   0), linewidth=1)
+plot(slowMA,   title="Slow EMA",   color=color.new(color.orange, 0), linewidth=1)
+plot(bbUpper,  title="BB Upper",   color=color.new(color.gray,  50), linewidth=1)
+plot(bbMiddle, title="BB Middle",  color=color.new(color.gray,  70), linewidth=1)
+plot(bbLower,  title="BB Lower",   color=color.new(color.gray,  50), linewidth=1)
+
+// ─── PLOTSHAPE — BUY SIGNALS ──────────────────────────────────────────────────
+plotshape(
+     series   = buySignal,
+     title    = "Buy Signal",
+     style    = shape.triangleup,
+     location = location.belowbar,
+     color    = color.new(color.green, 0),
+     size     = size.small
+     )
+
+plotshape(
+     series   = strongBuy,
+     title    = "Strong Buy",
+     style    = shape.arrowup,
+     location = location.belowbar,
+     color    = color.new(color.lime, 0),
+     size     = size.normal
+     )
+
+plotshape(
+     series   = bullBreakout,
+     title    = "Bull Breakout",
+     style    = shape.circle,
+     location = location.abovebar,
+     color    = color.new(color.aqua, 0),
+     size     = size.tiny
+     )
+
+// ─── PLOTSHAPE — SELL SIGNALS ─────────────────────────────────────────────────
+plotshape(
+     series   = sellSignal,
+     title    = "Sell Signal",
+     style    = shape.triangledown,
+     location = location.abovebar,
+     color    = color.new(color.red, 0),
+     size     = size.small
+     )
+
+plotshape(
+     series   = strongSell,
+     title    = "Strong Sell",
+     style    = shape.arrowdown,
+     location = location.abovebar,
+     color    = color.new(color.maroon, 0),
+     size     = size.normal
+     )
+
+plotshape(
+     series   = bearBreakout,
+     title    = "Bear Breakout",
+     style    = shape.circle,
+     location = location.belowbar,
+     color    = color.new(color.purple, 0),
+     size     = size.tiny
+     )
+
+// ─── BACKGROUND HIGHLIGHTING ──────────────────────────────────────────────────
+bgcolor(upTrend   ? color.new(color.green, 95) : na, title="Up-trend Background")
+bgcolor(downTrend ? color.new(color.red,   95) : na, title="Down-trend Background")
+
+// ─── ALERTS ───────────────────────────────────────────────────────────────────
+alertcondition(buySignal,    title="Buy Signal Alert",    message="Buy Signal triggered")
+alertcondition(sellSignal,   title="Sell Signal Alert",   message="Sell Signal triggered")
+alertcondition(strongBuy,    title="Strong Buy Alert",    message="Strong Buy triggered")
+alertcondition(strongSell,   title="Strong Sell Alert",   message="Strong Sell triggered")
+alertcondition(bullBreakout, title="Bull Breakout Alert", message="Bullish Breakout detected")
+alertcondition(bearBreakout, title="Bear Breakout Alert", message="Bearish Breakout detected")
